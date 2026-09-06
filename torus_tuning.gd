@@ -5,7 +5,8 @@ extends Resource
 @export_group("Player torques (N m)")
 @export_range(0.0, 100.0, 0.1) var acceleration_torque: float = 18.0
 @export_range(0.0, 100.0, 0.1) var braking_torque: float = 24.0
-@export_range(0.0, 100.0, 0.1) var lean_torque: float = 30.0
+## Acts about the ring's in-plane up axis; lean rate is roughly torque / (I_axle * spin).
+@export_range(0.0, 100.0, 0.1) var lean_torque: float = 24.0
 
 @export_group("Analog response")
 @export_range(0.0, 0.9, 0.01) var stick_deadzone: float = 0.15

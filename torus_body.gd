@@ -127,10 +127,17 @@ func _apply_player_input(state: PhysicsDirectBodyState3D, axle: Vector3) -> void
 	var brake_limit := maxf(0.0, absf(spin) / (state.step * inverse_axle_inertia)
 		+ brake_direction * drive)
 	var brake := minf(actions.y * tuning.braking_torque, brake_limit) * brake_direction
-	var lean_axis := axle.cross(Vector3.UP).normalized()
-	# Axial drive accelerates rolling through ground friction. For positive
-	# spin, travel is axle × UP, so camera-right is -axle. Positive lean torque
-	# tips the rim toward camera-right and induces a rightward gyroscopic turn.
+	var travel_axis := axle.cross(Vector3.UP).normalized()
+	# In-plane "up" of the ring: perpendicular to both the axle and travel.
+	# It equals world UP while the ring is upright and never carries spin.
+	var lean_axis := travel_axis.cross(axle).normalized()
+	# Axial drive accelerates rolling through ground friction. Steering torque
+	# acts about the in-plane up axis: on the spinning ring it precesses the
+	# axle vertically, so the rim rolls about the travel axis (a lean) with its
+	# ground contact as pivot, instead of yawing about the vertical axis. The
+	# lean rate is torque / (I_axle * spin), so the sign follows the spin and
+	# positive input always tips the top toward camera-right. Gravity acting on
+	# the leaned ring then produces the turn, as with a rolling coin.
 	input_torque = axle * (drive - brake) + lean_axis * actions.z * tuning.lean_torque
 	state.apply_torque(input_torque)
 	if Input.is_action_just_pressed("hop") and grounded and not _hop_locked:

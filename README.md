@@ -16,8 +16,10 @@ wait for confirmation.
 
 The torus starts with a spin impulse and rolls through ground friction. The
 camera follows travel with a side offset so the hollow ring is visible. The
-playable scene has no automatic nudge. Use small lean inputs while moving; at low
-speed the unassisted ring can fall over. Reset to start a fresh run.
+playable scene has no automatic nudge, uses a 64-capsule rim and zero linear
+damping so the ring coasts with only contact losses. Tap lean inputs while
+moving: a held key leans the ring past its balance point, and at low speed the
+unassisted ring can fall over. Reset to start a fresh run.
 
 ## Controls
 
@@ -37,7 +39,16 @@ is applied once. Default stick response is `sign(x) * ((abs(x)-0.15)/0.85)^1.5`
 outside the deadzone. Keyboard keys retain full strength.
 
 All driving/leaning uses torque inside `_integrate_forces`. RT and LT contribute
-independently to the net axle torque. Braking opposes current spin and caps its
+independently to the net axle torque. Lean torque acts about the ring's in-plane
+up axis (world up while upright, perpendicular to axle and travel). On the
+spinning ring that torque precesses the axle vertically, so the rim rolls about
+the axis parallel to its travel with the ground contact as pivot, instead of
+yawing around the vertical axis. The lean rate is about `torque / (I_axle * spin)`
+and follows the spin sign, so right input always tips the top toward camera-right.
+At the default torque and cruising spin a full input leans about 55° per second.
+Ground friction keeps the contact point in place during the roll. Releasing the
+input stops the roll and keeps the lean angle; gravity on the leaned ring then
+turns it, as with a rolling coin, and opposite input straightens it again. Braking opposes current spin and caps its
 one-step effect at zero; LT alone does not drive in reverse. Contacts can still
 rotate a stopped ring, as expected in a free rigid-body simulation.
 
@@ -57,7 +68,7 @@ placement resets with the body.
 While running in the editor, select **Remote > ControlsLab > Torus > Tuning**.
 The `TorusTuning` resource exposes acceleration/braking/lean torque, hop impulse,
 stick deadzone/curve, support-contact threshold, hop rearm time, and rumble.
-Defaults are 18 / 24 / 30 N·m, a 10.5 N·s hop, deadzone 0.15, and exponent 1.5.
+Defaults are 18 / 24 / 24 N·m, a 10.5 N·s hop, deadzone 0.15, and exponent 1.5.
 Edit geometry and base damping on the Torus node itself.
 
 Press **D / Back** for the separate, removable `TorusDebug` node. It makes the
@@ -145,10 +156,11 @@ gyroscopic integration from contact-driven turning.
 
 The full `mise run validate` suite also exercises real keyboard/gamepad events,
 analog torque response, simultaneous inputs, braking near zero and in either
-spin direction, ring-relative lean, grounded hopping, reset, and debug on/off
+spin direction, precession-driven lean about the travel axis, grounded hopping, reset, and debug on/off
 physics equivalence. A separate rolling-steering regression uses the playable
 scene with gravity, friction, spin and gyro enabled: it checks camera-relative
-left/right turns under keyboard and analog input, with and without acceleration.
+left/right turns after a 0.3 s lean tap under keyboard and analog input, with and
+without acceleration.
 Free-flight conservation runs for six simulated seconds.
 Controller input is tested with synthetic events; physical rumble needs a
 controller check on your machine.

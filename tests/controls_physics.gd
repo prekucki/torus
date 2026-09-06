@@ -153,16 +153,29 @@ func _test_brakes() -> void:
 
 func _test_lean() -> void:
 	for yaw in [0.0, PI * 0.5]:
-		var body := await _body(0.0, Basis(Vector3.UP, yaw))
+		# Steering relies on gyroscopic precession: the torque acts about the
+		# ring's in-plane up axis and the spinning ring answers by rolling
+		# about the travel axis instead of yawing.
+		var body := await _body(12.0, Basis(Vector3.UP, yaw))
+		body.manual_gyroscope = true
 		Input.action_press("lean_right", 1.0)
 		var sample := await _ticks(body, 1)
 		var axle: Vector3 = sample.spin_axis
-		var expected := axle.cross(Vector3.UP).normalized() * body.tuning.lean_torque
+		var travel := axle.cross(Vector3.UP).normalized()
+		var expected := travel.cross(axle).normalized() * body.tuning.lean_torque
 		_check((sample.input_torque as Vector3).is_equal_approx(expected),
-			"lean torque follows ring axle at yaw %.0f" % rad_to_deg(yaw))
-		var after := await _ticks(body, 20)
-		_check((after.angular_velocity as Vector3).dot(expected) > 0.01,
-			"lean torque physically tilts the ring")
+			"steering torque acts about the ring's in-plane up axis at yaw %.0f" % rad_to_deg(yaw))
+		var start_heading: float = body.heading_radians
+		var after := await _ticks(body, 60)
+		var camera_right := travel.cross(Vector3.UP).normalized()
+		var top := Vector3.UP.slide(after.spin_axis).normalized()
+		var heading_change := absf(rad_to_deg(angle_difference(start_heading, body.heading_radians)))
+		_check(after.lean_degrees > 0.5 and top.dot(camera_right) > 0.0,
+			"ring rolls about the travel axis toward camera-right (lean %.2f deg)" % after.lean_degrees)
+		# The instantaneous lean rate nutates around the precession rate, so the
+		# accumulated lean angle above is the robust measure of the roll.
+		_check(heading_change < after.lean_degrees * 0.25,
+			"lean input does not yaw the axle (heading change %.2f deg)" % heading_change)
 		await _dispose(body)
 
 
