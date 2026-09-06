@@ -33,14 +33,19 @@ func _process(delta: float) -> void:
 		return
 	var velocity := target.linear_velocity
 	velocity.y = 0.0
+	var body := target as TorusBody
+	var in_water := body != null and body.water_pending
 	var blend := 1.0 - exp(-follow_response * delta)
-	if velocity.length_squared() > 1.0:
+	if not in_water and velocity.length_squared() > 1.0:
 		# Follow horizontal yaw without normalizing a near-zero 3D rotation axis.
 		var heading := atan2(_travel_direction.x, _travel_direction.z)
 		var desired_heading := atan2(velocity.x, velocity.z)
 		heading = lerp_angle(heading, desired_heading, blend)
 		_travel_direction = Vector3(sin(heading), 0.0, cos(heading))
 	var focus := target.global_position + Vector3.UP * 0.4
+	if in_water:
+		# Watch the splash above the surface, not the falling body's underwater path.
+		focus = body.water_position + Vector3.UP * 0.8
 	# Optional shoulder view exposes the hole; centered play view keeps banks symmetric.
 	var side := _travel_direction.cross(Vector3.UP) * side_offset
 	var desired := focus - _travel_direction * follow_distance + Vector3.UP * follow_height + side

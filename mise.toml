@@ -21,11 +21,19 @@ run = [
   "godot --headless --path . --script res://tests/debug_invariance.gd",
   "godot --headless --path . --script res://tests/effects_invariance.gd",
   "godot --headless --path . --script res://tests/chase_camera.gd",
+  "godot --headless --path . --script res://tests/track_validation.gd",
+  "godot --headless --path . --script res://tests/water_hazard.gd",
+  "godot --headless --path . --script res://tests/water_effects.gd",
+  "godot --headless --path . --script res://tests/audio_feedback.gd",
 ]
 
 [tasks.play]
-description = "Run Phase 2 controls"
+description = "Race on the Coastline Run circuit"
 run = "godot --path ."
+
+[tasks.controls-lab]
+description = "Run the flat Phase 2 control lab"
+run = "godot --path . --scene res://controls_lab.tscn"
 
 [tasks.physics-lab]
 description = "Run the original Phase 1 automatic experiment"

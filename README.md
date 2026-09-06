@@ -1,4 +1,4 @@
-# Torus Racer — Phase 2
+# Torus Racer — Coastline Run
 
 A Godot **4.7.x** GDScript physics experiment using **built-in Jolt**.
 Godot **4.7.2** is pinned in `mise.toml`:
@@ -10,9 +10,46 @@ mise run play
 mise exec -- godot --editor --path .
 ```
 
-In the editor, open `controls_lab.tscn` and press **F6**, or press **F5** to run
-the project. Phases 1 and 2 are implemented. Phase 3 assists and Phase 4 track/laps
-wait for confirmation.
+Press **F5** to play the coastal circuit, or open `track.tscn` and press **F6**.
+Phases 1 and 2 are implemented. The track/environment was brought forward at
+the user's request; Phase 3 general arcade assists are paused, and lap timing
+and track checkpoints are not implemented yet.
+
+## Coastline circuit
+
+The new starting scene is a roughly **1.03 km island circuit**, with 24 m of
+asphalt, striped shoulders, low collision barriers, two broad banked bends,
+and one 3 m launch crest. The landing is continuous road, not a compulsory gap.
+Ease off the accelerator before corners; the body still uses the motorcycle
+bank controls and real ground contact. **R** returns to the start gantry approach.
+Falling into the sea produces a splash and automatically returns you to the
+start after 0.75 s. There is no lap counter yet.
+
+Warm coastal lighting, turquoise water, shoreline foam, sandstone cliffs,
+palms, a lighthouse and harbor frame the road. Start/finish graphics, banners
+and chevrons identify the route. Scenery is cosmetic and batched where useful;
+the road and guardrails carry static collision. Only the static road uses a
+concave mesh collider—the torus remains a dynamic 100-capsule compound.
+
+`track_layout.gd` defines the shared centerline, bank transitions and jump.
+`track_builder.gd` extrudes the road, including cross-width subdivisions to
+avoid height dips through bank transitions. `track_scenery.gd` and
+`track_props.gd` keep decorations separate from the simulation. Ocean animation
+is shader-only and never drives physics.
+
+`WaterHazard` tests the torus's lowest point against the ocean's nominal level
+inside its 3 km square bounds. The vertical extent accounts for the ring's
+current bank, including lying flat. A 0.30 m immersion margin avoids triggering
+on the cosmetic waves (maximum amplitude 0.26 m); a half-space test also catches
+fast falls without tunneling through a thin trigger volume. Detection and the
+reset countdown run inside `_integrate_forces`. There is no buoyancy simulation.
+During rescue the camera stays at the splash and driving input is suspended;
+R can skip the delay. The `WaterHazard` node exposes the margin, delay and enable
+switch. Removing `WaterEffects` or `GameAudio` never disables rescue.
+
+Use `mise run controls-lab` for the original flat playable scene, or
+`mise run physics-lab` for the automatic physics experiment. Both remain
+independent of the new track.
 
 The torus starts with a spin impulse and rolls through ground friction. The
 camera follows travel from directly behind so left/right bank looks symmetric. The
@@ -29,6 +66,7 @@ speed the unassisted ring can fall over. Reset to start a fresh run.
 | Hop | Space | A / Cross |
 | Reset | R | Y / Triangle |
 | Physics debug | D | Back / Select |
+| Toggle music | M | — |
 
 Keyboard and gamepad work simultaneously. HUD hints follow the last meaningful
 input device, ignoring stick noise. Input Map actions are installed at startup
@@ -77,7 +115,8 @@ placement resets with the body.
 
 ## Live tuning and debug
 
-While running in the editor, select **Remote > ControlsLab > Torus > Tuning**.
+While running in the editor, select **Remote > Track > Torus > Tuning**
+(or **ControlsLab > Torus > Tuning** in the flat lab).
 The `TorusTuning` resource exposes acceleration/braking/bank torque, hop impulse,
 stick deadzone/curve, support-contact threshold, hop rearm time, and rumble.
 Defaults are 18 / 24 / 30 N·m (bank torque is a cap), a 10.5 N·s hop, deadzone
@@ -126,6 +165,20 @@ debug and clear on reset. In **Remote > ControlsLab > TorusEffects**, adjust
 `Intensity`, `Slip Threshold`, `Skid Lifetime`, or turn `Enabled` off. Removing
 the node has no effect on physics; its regression compares 720 simulation ticks
 with effects present versus absent, alongside particle/reset/debug probes.
+
+The coastal scene adds a short original, looping 96 BPM synth soundtrack and
+procedural rolling, hop, landing, collision and splash sounds. Rolling pitch
+and volume follow speed and slip; contact transitions trigger one-shot effects.
+Press **M** to pause/resume music without muting effects. Under
+**Remote > Track > GameAudio**, adjust `Music Volume Db` and `Sfx Volume Db`, or
+disable music and effects independently. Audio is synthesized once and cached
+(under 1 MB of PCM); no downloads or third-party recordings are used.
+
+`WaterEffects` draws pooled spray droplets, mist and expanding foam rings at
+the impact location, independent of the body's reset. It hides in physics debug;
+its `Enabled` and `Intensity` exports can be changed live. Both water visuals
+and audio only observe signals and snapshots, never apply forces or change
+rigid-body state. The original labs remain silent and have no water hazard.
 
 ## Original physics experiment
 
@@ -191,6 +244,12 @@ non-increasing kinetic energy on a stationary support, and hop/airborne exclusio
 Free-flight conservation runs for six simulated seconds.
 Controller input is tested with synthetic events; physical rumble needs a
 controller check on your machine.
+The track regression additionally checks the closed layout, bank continuity,
+front-facing road collisions, supported spawn and a real accelerated jump/landing.
+Water regressions cover upright/leaned/flat falls, fast crossings, reset timing,
+manual cancellation, safe jumps, and identical trajectories with/without splash
+effects. Audio tests check bounded PCM, click-free stream endpoints, one-shot
+events, live volume, music toggle and independence from physics.
 
 ## Gyro choice and measured validation
 

@@ -86,6 +86,31 @@ func _test_playable_projection() -> void:
 	_near(banks[1], 0.0, "upright ring diameter projects vertically")
 	_check(camera.global_transform.is_equal_approx(stationary_transform),
 		"bank projection comparison uses one stationary camera")
+	# Frozen presentation fixture: no force integration or simulated pose is changed.
+	body.water_pending = true
+	body.water_position = Vector3(220.0, -3.96, -65.0)
+	body.position = Vector3(225.0, -12.0, -60.0)
+	body.linear_velocity = Vector3(20.0, -30.0, 0.0)
+	var water_heading: Vector3 = camera.get("_travel_direction")
+	camera._process(10.0)
+	var focus := body.water_position + Vector3.UP * 0.8
+	var expected_position: Vector3 = focus - water_heading * camera.follow_distance \
+		+ Vector3.UP * camera.follow_height
+	_check(camera.global_position.is_equal_approx(expected_position),
+		"Rescue camera frames the surface splash rather than the submerged torus")
+	_check(camera.get("_travel_direction").is_equal_approx(water_heading),
+		"Underwater motion cannot rotate the rescue camera heading")
+	_check((-camera.global_basis.z).dot((focus - camera.global_position).normalized()) > 0.99999,
+		"Rescue camera looks at the splash")
+	body.water_pending = false
+	body.transform = body.checkpoint_transform
+	body.linear_velocity = Vector3.ZERO
+	body.reset_completed.emit()
+	camera._process(1.0 / 60.0)
+	expected_position = body.global_position + Vector3.UP * (0.4 + camera.follow_height) \
+		- Vector3.BACK * camera.follow_distance
+	_check(camera.global_position.is_equal_approx(expected_position),
+		"Reset snaps the camera back to the checkpoint without a long return pan")
 	viewport.free()
 	var lab := PHYSICS_LAB.instantiate()
 	_check(lab.get_node("ChaseCamera").side_offset > 0.0, "Phase 1 retains its optional shoulder view")

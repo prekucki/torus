@@ -1,9 +1,9 @@
-; Torus Racer — Phase 2 controls, with the original physics lab preserved.
+; Torus Racer — Coastline Run, with the original physics/control labs preserved.
 config_version=5
 
 [application]
 config/name="Torus Racer"
-run/main_scene="res://controls_lab.tscn"
+run/main_scene="res://track.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 
 [display]

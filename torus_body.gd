@@ -8,6 +8,7 @@ signal reset_completed
 
 @export var controls_enabled: bool = false
 @export var tuning: TorusTuning = TorusTuning.new()
+@export var water_hazard: WaterHazard
 
 @export_group("Geometry (restart after editing)")
 @export_range(0.1, 5.0, 0.01) var major_radius: float = 1.0
@@ -49,6 +50,9 @@ var _hop_locked: bool = false
 var _air_time: float = 0.0
 var _rumble_timer: float = 0.0
 var _previous_velocity := Vector3.ZERO
+var water_pending: bool = false
+var water_remaining: float = 0.0
+var water_position := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -90,6 +94,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		_reset_to_checkpoint(state)
 		_publish_sample(state, {"contacts": [], "slip_ratio": 0.0})
 		return
+	if _update_water_hazard(state):
+		_publish_sample(state, {"contacts": [], "slip_ratio": 0.0})
+		return
 	var orientation := state.transform.basis.orthonormalized()
 	var axle := orientation.x
 	if not _initialized:
@@ -102,8 +109,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		major_radius + minor_radius, tuning.ground_normal_min_dot)
 	grounded = contact_data.grounded
 	_support_contacts = contact_data.contacts
-	_update_landing(state, contact_data.impact_impulse)
-	if controls_enabled:
+	if not water_pending:
+		_update_landing(state, contact_data.impact_impulse)
+	if controls_enabled and not water_pending:
 		input_reader.tuning = tuning
 		_apply_player_input(state, axle)
 
@@ -122,6 +130,32 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	contact_count = state.get_contact_count()
 	_publish_sample(state, contact_data)
 	_previous_velocity = state.linear_velocity
+
+
+func _update_water_hazard(state: PhysicsDirectBodyState3D) -> bool:
+	if not is_instance_valid(water_hazard) or not water_hazard.enabled:
+		water_pending = false
+		water_remaining = 0.0
+		water_position = Vector3.ZERO
+		return false
+	if water_pending:
+		water_remaining = maxf(0.0, water_remaining - state.step)
+	else:
+		var center := state.transform.origin + state.center_of_mass
+		var axle := state.transform.basis.x.normalized()
+		var water := water_hazard.sample(center, axle, major_radius, minor_radius)
+		if not water.submerged:
+			return false
+		water_pending = true
+		water_remaining = water_hazard.respawn_delay
+		water_position = water.position
+		# One event per fall. Presentation can be removed without affecting rescue.
+		water_hazard.water_entered.emit(water_position, maxf(0.0, -state.linear_velocity.y))
+	if water_remaining <= 0.0:
+		# Reuse the impulse-based reset; the following physics tick relaunches spin.
+		_reset_to_checkpoint(state)
+		return true
+	return false
 
 
 func _apply_player_input(state: PhysicsDirectBodyState3D, axle: Vector3) -> void:
@@ -182,6 +216,9 @@ func _reset_to_checkpoint(state: PhysicsDirectBodyState3D) -> void:
 	_hop_locked = false
 	_air_time = 0.0
 	_previous_velocity = Vector3.ZERO
+	water_pending = false
+	water_remaining = 0.0
+	water_position = Vector3.ZERO
 	grounded = false
 	contact_count = 0
 	_support_contacts = []
@@ -214,6 +251,8 @@ func _publish_sample(state: PhysicsDirectBodyState3D, contacts: Dictionary) -> v
 		"bank_pivot_torque": bank_pivot_torque_impulse / state.step,
 		"speed": state.linear_velocity.length(), "spin_rate": spin_rate,
 		"lean_degrees": lean_degrees, "grounded": grounded, "slip_ratio": contacts.slip_ratio,
+		"water_pending": water_pending, "water_remaining": water_remaining,
+		"water_position": water_position,
 	}
 	physics_sampled.emit(last_sample)
 

@@ -3,11 +3,15 @@ extends CanvasLayer
 
 @export var target: TorusBody
 @export var debug_view: Node3D
+@export var phase_label: String = "Phase 2 controls"
+@export var location_hint: String = ""
+@export var panel_width: float = 600.0
 
 var _speed_label: Label
 var _hint_label: Label
 var _debug_box: VBoxContainer
 var _readout: Label
+var _rescue_label: Label
 
 
 func _ready() -> void:
@@ -29,7 +33,7 @@ func _build_hud() -> void:
 	var panel := PanelContainer.new()
 	panel.name = "TelemetryPanel"
 	panel.position = Vector2(18.0, 18.0)
-	panel.custom_minimum_size.x = 600.0
+	panel.custom_minimum_size.x = panel_width
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var background := StyleBoxFlat.new()
 	background.bg_color = Color(0.025, 0.045, 0.065, 0.88)
@@ -45,13 +49,24 @@ func _build_hud() -> void:
 	column.add_theme_constant_override(&"separation", 7)
 	panel.add_child(column)
 	var title := Label.new()
-	title.text = "TORUS RACER  /  Phase 2 controls"
+	title.text = "TORUS RACER  /  " + phase_label
 	title.add_theme_color_override(&"font_color", Color("9cb7ce"))
 	column.add_child(title)
+	if not location_hint.is_empty():
+		var location := Label.new()
+		location.text = location_hint
+		location.add_theme_font_size_override(&"font_size", 14)
+		location.add_theme_color_override(&"font_color", Color("c9bca1"))
+		column.add_child(location)
 	_speed_label = Label.new()
 	_speed_label.text = "0.0 km/h"
 	_speed_label.add_theme_font_size_override(&"font_size", 28)
 	column.add_child(_speed_label)
+	_rescue_label = Label.new()
+	_rescue_label.text = "IN THE WATER / returning to start"
+	_rescue_label.add_theme_color_override(&"font_color", Color("77e3db"))
+	_rescue_label.visible = false
+	column.add_child(_rescue_label)
 	_hint_label = Label.new()
 	_hint_label.add_theme_font_size_override(&"font_size", 15)
 	column.add_child(_hint_label)
@@ -84,6 +99,7 @@ func _build_hud() -> void:
 func _on_physics_sampled(snapshot: Dictionary) -> void:
 	var speed: float = snapshot.get("speed", 0.0)
 	_speed_label.text = "%.1f km/h" % (speed * 3.6)
+	_rescue_label.visible = snapshot.get("water_pending", false)
 	if not _debug_box.visible:
 		return
 	var spin: float = snapshot.get("spin_rate", 0.0)
