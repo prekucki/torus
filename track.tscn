@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="PackedScene" path="res://controls_lab.tscn" id="1_lab"]
 [ext_resource type="Script" path="res://track_builder.gd" id="2_road"]
@@ -7,6 +7,8 @@
 [ext_resource type="Script" path="res://water_hazard.gd" id="5_water"]
 [ext_resource type="Script" path="res://water_effects.gd" id="6_splash"]
 [ext_resource type="Script" path="res://game_audio.gd" id="7_audio"]
+[ext_resource type="Script" path="res://race_manager.gd" id="8_race"]
+[ext_resource type="Script" path="res://checkpoint_markers.gd" id="9_markers"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_coast"]
 sky_top_color = Color(0.10, 0.38, 0.58, 1)
@@ -57,10 +59,11 @@ follow_distance = 8.0
 follow_height = 4.0
 fov = 78.0
 
-[node name="HUD" parent="." index="8"]
+[node name="HUD" parent="." index="8" node_paths=PackedStringArray("race_manager")]
 phase_label = "COASTLINE RUN"
-location_hint = "R returns to start · M toggles music"
+location_hint = "R returns to checkpoint · M toggles music"
 panel_width = 430.0
+race_manager = NodePath("../RaceManager")
 
 [node name="Road" type="StaticBody3D" parent="."]
 script = ExtResource("2_road")
@@ -85,6 +88,14 @@ debug_view = NodePath("../TorusDebug")
 script = ExtResource("7_audio")
 target = NodePath("../Torus")
 water_hazard = NodePath("../WaterHazard")
+
+[node name="RaceManager" type="Node" parent="." node_paths=PackedStringArray("target")]
+script = ExtResource("8_race")
+target = NodePath("../Torus")
+
+[node name="CheckpointMarkers" type="Node3D" parent="." node_paths=PackedStringArray("race_manager")]
+script = ExtResource("9_markers")
+race_manager = NodePath("../RaceManager")
 
 [node name="SafetyFloor" type="StaticBody3D" parent="."]
 position = Vector3(0, -18.5, 0)

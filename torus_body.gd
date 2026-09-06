@@ -238,6 +238,7 @@ func _publish_sample(state: PhysicsDirectBodyState3D, contacts: Dictionary) -> v
 	spin_rate = state.angular_velocity.dot(axle)
 	# Read-only snapshots let HUD/debug nodes be removed without changing forces.
 	last_sample = {
+		"delta": state.step,
 		"origin": state.transform.origin + state.center_of_mass,
 		"linear_velocity": state.linear_velocity, "angular_velocity": state.angular_velocity,
 		"spin_axis": axle, "input_torque": input_torque, "assist_torque": assist_torque,

@@ -1,7 +1,8 @@
 # Torus Racer — Coastline Run
 
 A Godot **4.7.x** GDScript physics experiment using **built-in Jolt**.
-Godot **4.7.2** is pinned in `mise.toml`:
+Godot **4.7.2** and the **.NET 10.0.303 SDK** (installer tooling only) are pinned
+in `mise.toml`:
 
 ```sh
 mise install
@@ -11,9 +12,102 @@ mise exec -- godot --editor --path .
 ```
 
 Press **F5** to play the coastal circuit, or open `track.tscn` and press **F6**.
-Phases 1 and 2 are implemented. The track/environment was brought forward at
-the user's request; Phase 3 general arcade assists are paused, and lap timing
-and track checkpoints are not implemented yet.
+Phases 1, 2 and 4 are implemented. The track and game loop were brought forward
+at the user's request; Phase 3 general arcade assists remain paused.
+
+## Windows build
+
+The checked-in `export_presets.cfg` contains the **Windows Desktop** preset for
+x86_64. Install matching **Godot 4.7.2 export templates** once via
+**Editor > Manage Export Templates**, selecting Windows x86_64. Installing the
+editor with `mise install` does not install these separate templates.
+
+```sh
+mise run build-windows
+```
+
+This imports the project, creates `build/windows`, then exports a release build:
+`TorusRacer.exe` and `TorusRacer.pck`. Keep both files together; players do not
+need the Godot editor. Tests and previous build outputs are excluded from the
+pack, while the inherited lab scenes remain as required track dependencies.
+Build outputs are ignored by Git. To invoke the exporter directly after import:
+
+```sh
+mise exec -- godot --headless --path . --script tools/prepare_windows_export.gd
+mise exec -- godot --headless --path . --export-release "Windows Desktop" build/windows/TorusRacer.exe
+```
+
+This produces a playable build, **not an installer**. Players do not need .NET;
+it is used only to build the MSI below.
+See [Godot export documentation](https://docs.godotengine.org/en/4.7/tutorials/export/exporting_projects.html).
+
+### WiX MSI installer (Windows host)
+
+`installer/TorusRacer.wixproj` pins **WiX Toolset 7.0.0**, restored automatically
+through NuGet. `global.json` requires the same .NET SDK version as mise. WiX uses
+native Windows tools and `msi.dll`: exporting the game on Linux works, but building
+the MSI requires Windows. Copy the repository and `build/windows` to a Windows
+machine, or export the game there first. Run commands from the repository root.
+
+WiX 7 requires explicit acceptance of its [OSMF terms](https://docs.firegiant.com/wix/osmf/).
+The project owner has accepted these terms for this build. The mise task supplies
+`-p:AcceptEula=wix7` explicitly; it does not change global WiX license settings.
+Build on Windows with:
+
+```powershell
+mise install
+mise run build-installer
+```
+
+This packages an existing export and deliberately does not re-export the game.
+For a custom version, use the direct command:
+
+```powershell
+mise exec -- dotnet build installer/TorusRacer.wixproj --configuration Release -p:AcceptEula=wix7 -p:ProductVersion=0.4.1
+```
+
+The output is `build/installer/TorusRacer.msi`, an x64, per-user installer with
+the EXE and PCK embedded in a single MSI. It installs in
+`%LOCALAPPDATA%\TorusRacer` and creates a Start Menu shortcut. Neither .NET nor
+Godot needs to be installed on the player's computer. Saved lap times live in
+Godot's separate user-data directory and are not deleted by uninstalling.
+
+The default installer version is `0.4.0`. Pass `-p:ProductVersion=0.4.1` for a
+subsequent build; increase the three-part version for upgrades and keep the
+`UpgradeCode` in `Package.wxs` unchanged. Rebuilds with the same version replace
+one another instead of registering duplicate installations, so use distinct
+three-part versions for published releases (not a fourth build-number field).
+The EXE and MSI are currently unsigned.
+
+Test on Windows: install the MSI, launch **Torus Racer** from Start Menu, then
+build/install the same and a higher version and verify that only one installation
+remains registered. Finally uninstall and
+check that the shortcut and game files are removed while saved lap times remain.
+
+### GitHub Actions
+
+`.github/workflows/windows-installer.yml` builds on `windows-2025` after pushes
+to `main`, and supports **Actions > Windows installer > Run workflow**. The manual
+form optionally overrides the MSI version (`X.Y.Z`); leave it empty to use the
+project default. It does not publish a GitHub Release or run on pull requests.
+
+The workflow installs Godot and an isolated .NET SDK with mise, verifies their
+versions, downloads official matching Godot templates, checks the archive's pinned
+SHA256 and caches only the Windows x64 templates. When updating Godot, update
+`GODOT_VERSION` and `GODOT_TEMPLATES_SHA256` in the workflow together with `mise.toml`.
+The first uncached run downloads the full export-template archive (about 1.2 GB).
+
+After exporting and building the MSI, the runner installs it, starts the installed
+game headlessly, and uninstalls it while checking files and the Start Menu shortcut.
+`tools/test_windows_installer.ps1` refuses non-GitHub-hosted environments and existing
+installations; it is only for disposable CI runners, not a local uninstall helper.
+Graphics, controller input and audible playback still need a manual Windows test.
+
+Successful runs expose two downloadable artifacts: `TorusRacer-MSI-<run>` containing
+`TorusRacer.msi`, and `TorusRacer-Windows-<run>` containing the portable EXE + PCK.
+Build artifacts expire after 14 days; installer test logs are retained for 7 days
+even when the test fails. No signing certificate or additional repository secret
+is required. Actions are pinned to immutable commits and use a read-only token.
 
 ## Coastline circuit
 
@@ -21,15 +115,19 @@ The new starting scene is a roughly **1.03 km island circuit**, with 24 m of
 asphalt, striped shoulders, low collision barriers, two broad banked bends,
 and one 3 m launch crest. The landing is continuous road, not a compulsory gap.
 Ease off the accelerator before corners; the body still uses the motorcycle
-bank controls and real ground contact. **R** returns to the start gantry approach.
+bank controls and real ground contact. **R** returns to the last passed checkpoint
+(the start gantry approach before the race begins).
 Falling into the sea produces a splash and automatically returns you to the
-start after 0.75 s. There is no lap counter yet.
+last checkpoint after 0.75 s.
 
 Warm coastal lighting, turquoise water, shoreline foam, sandstone cliffs,
 palms, a lighthouse and harbor frame the road. Start/finish graphics, banners
-and chevrons identify the route. Scenery is cosmetic and batched where useful;
-the road and guardrails carry static collision. Only the static road uses a
-concave mesh collider—the torus remains a dynamic 100-capsule compound.
+and chevrons identify the route. The road, guardrails, grass, cliffs and beach
+carry static collision. Terrain collision matches its visible mesh, so leaving
+the asphalt no longer makes the torus fall through the grass into hidden water.
+Palms, rocks and harbor furniture are cosmetic and batched where useful.
+Concave mesh colliders belong only to static road/terrain bodies—the torus
+remains a dynamic 100-capsule compound.
 
 `track_layout.gd` defines the shared centerline, bank transitions and jump.
 `track_builder.gd` extrudes the road, including cross-width subdivisions to
@@ -54,7 +152,7 @@ independent of the new track.
 The torus starts with a spin impulse and rolls through ground friction. The
 camera follows travel from directly behind so left/right bank looks symmetric. The
 playable scene has no automatic nudge. Use small lean inputs while moving; at low
-speed the unassisted ring can fall over. Reset to start a fresh run.
+speed the unassisted ring can fall over. Reset to recover at the last checkpoint.
 
 ## Controls
 
@@ -180,6 +278,36 @@ its `Enabled` and `Intensity` exports can be changed live. Both water visuals
 and audio only observe signals and snapshots, never apply forces or change
 rigid-body state. The original labs remain silent and have no water hazard.
 
+## Race loop
+
+Cross the start line forward to begin the clock. Pass **six numbered checkpoints
+in order**, then cross the finish line to complete the lap and begin the next.
+The next gate is highlighted in mint; the finish is gold. The HUD shows the
+current lap/time, best and last lap, checkpoint progress and reset status.
+
+`RaceManager` observes physics snapshots and sweeps the center-of-mass segment
+through each gate's banked plane. Direction, width and height checks reject
+backwards crossings, out-of-order gates and passing underneath the track.
+Sweeps catch fast crossings; interpolated crossing times use the physics step,
+not the rendering frame rate. This is a small local racing loop, not a complete
+anti-cheat or off-track penalty system.
+
+Each passed gate stores a correctly oriented checkpoint 2 m behind it. Both
+**R** and automatic water rescue retain gate progress and the running lap time,
+but mark that lap **invalid for a best time**. Finishing it starts a fresh valid
+lap. Reset teleports cannot count as gate crossings, and reset still cancels
+momentum with impulses before relaunching spin on the following tick.
+
+Best eligible lap is stored locally at `user://coastline_best.cfg` and restored
+on the next launch. File writes are deferred outside physics integration;
+`RaceManager > Persistence Enabled` can disable saving. The record is local to
+this circuit and is not separated by tuning preset.
+
+Press **D** to show the live bank-pivot strength alongside the physics readout.
+The panel explicitly marks the five general Phase 3 assists as not implemented;
+it does not invent strength values for unavailable features. Race state and
+checkpoint markers remain separate from the original standalone labs.
+
 ## Original physics experiment
 
 Run `mise run physics-lab`, or open `physics_validation.tscn` and press **F6**.
@@ -250,6 +378,10 @@ Water regressions cover upright/leaned/flat falls, fast crossings, reset timing,
 manual cancellation, safe jumps, and identical trajectories with/without splash
 effects. Audio tests check bounded PCM, click-free stream endpoints, one-shot
 events, live volume, music toggle and independence from physics.
+Phase 4 adds solid-terrain rays and real grass landing/rolling, ordered/directional
+lap crossings, timer interpolation, reset exclusion, persistent best-lap loading,
+HUD formatting, and an integrated drive through the start, jump, checkpoint and
+physical R reset.
 
 ## Gyro choice and measured validation
 

@@ -1,6 +1,6 @@
 class_name TrackScenery
 extends Node3D
-## Deterministic coastal scenery. Every generated node is cosmetic; no colliders.
+## Deterministic coast: terrain is solid; water, vegetation and props are cosmetic.
 
 @export var scenery_seed: int = 43119
 @export_range(0, 160, 1) var palm_count: int = 72
@@ -29,19 +29,37 @@ func _build_island() -> void:
 	ocean.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var rock := ShaderMaterial.new()
 	rock.shader = CLIFF
-	_mesh("IslandCliffs", _island_mesh([
+	_terrain("IslandCliffs", _island_mesh([
 		Vector3(137.0, 5.0, 242.0), Vector3(141.0, 0.0, 247.0),
 		Vector3(131.0, -8.0, 239.0), Vector3(122.0, -20.0, 227.0),
-	]), rock)
+	]), rock, 0.85)
 	var sand := ShaderMaterial.new()
 	sand.shader = CLIFF
 	sand.set_shader_parameter("top_color", Color("b09a66"))
 	sand.set_shader_parameter("rock_color", Color("c49961"))
 	sand.set_shader_parameter("layer_color", Color("e6cf97"))
-	_mesh("Beach", _island_mesh([
+	_terrain("Beach", _island_mesh([
 		Vector3(147.0, -1.0, 255.0), Vector3(162.0, -6.0, 280.0),
 		Vector3(155.0, -15.0, 272.0),
-	]), sand)
+	]), sand, 0.9)
+
+
+func _terrain(node_name: String, mesh: ArrayMesh, material: Material, friction: float) -> void:
+	var visual := _mesh(node_name, mesh, material)
+	var terrain := StaticBody3D.new()
+	terrain.name = "TerrainBody"
+	terrain.physics_material_override = PhysicsMaterial.new()
+	terrain.physics_material_override.friction = friction
+	terrain.physics_material_override.bounce = 0.0
+	# Rough terrain uses its grip instead of the ring's smoother material.
+	terrain.physics_material_override.rough = true
+	var collider := CollisionShape3D.new()
+	collider.name = "TerrainCollision"
+	# Static concave terrain reuses every visible triangle, including cliff sides.
+	# Keeping it under the visual also keeps both transforms exactly aligned.
+	collider.shape = mesh.create_trimesh_shape()
+	terrain.add_child(collider)
+	visual.add_child(terrain)
 
 
 func _island_mesh(rings: Array) -> ArrayMesh:
