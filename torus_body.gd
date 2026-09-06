@@ -12,7 +12,7 @@ signal reset_completed
 @export_group("Geometry (restart after editing)")
 @export_range(0.1, 5.0, 0.01) var major_radius: float = 1.0
 @export_range(0.02, 1.0, 0.01) var minor_radius: float = 0.25
-@export_range(12, 64, 1) var capsule_count: int = 20
+@export_range(12, 128, 1) var capsule_count: int = 100
 
 @export_group("Physics")
 @export var manual_gyroscope: bool = true
@@ -36,6 +36,10 @@ var has_nudged: bool = false
 var grounded: bool = false
 var input_torque := Vector3.ZERO
 var assist_torque := Vector3.ZERO
+var bank_pivot_impulse := Vector3.ZERO
+var bank_pivot_position := Vector3.ZERO
+var bank_pivot_torque_impulse := Vector3.ZERO
+var _support_contacts: Array = []
 var last_sample: Dictionary = {}
 var input_reader: TorusInput
 var checkpoint_transform := Transform3D.IDENTITY
@@ -79,6 +83,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	physics_material_override.friction = surface_friction
 	input_torque = Vector3.ZERO
 	assist_torque = Vector3.ZERO  # Phase 3 will supply this separate torque layer.
+	bank_pivot_impulse = Vector3.ZERO
+	bank_pivot_position = Vector3.ZERO
+	bank_pivot_torque_impulse = Vector3.ZERO
 	if _reset_requested or (controls_enabled and Input.is_action_just_pressed("reset")):
 		_reset_to_checkpoint(state)
 		_publish_sample(state, {"contacts": [], "slip_ratio": 0.0})
@@ -94,6 +101,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var contact_data := TorusContacts.sample(state, axle,
 		major_radius + minor_radius, tuning.ground_normal_min_dot)
 	grounded = contact_data.grounded
+	_support_contacts = contact_data.contacts
 	_update_landing(state, contact_data.impact_impulse)
 	if controls_enabled:
 		input_reader.tuning = tuning
@@ -127,12 +135,20 @@ func _apply_player_input(state: PhysicsDirectBodyState3D, axle: Vector3) -> void
 	var brake_limit := maxf(0.0, absf(spin) / (state.step * inverse_axle_inertia)
 		+ brake_direction * drive)
 	var brake := minf(actions.y * tuning.braking_torque, brake_limit) * brake_direction
-	var lean_axis := axle.cross(Vector3.UP).normalized()
-	# Axial drive accelerates rolling through ground friction. For positive
-	# spin, travel is axle × UP, so camera-right is -axle. Positive lean torque
-	# tips the rim toward camera-right and induces a rightward gyroscopic turn.
-	input_torque = axle * (drive - brake) + lean_axis * actions.z * tuning.lean_torque
+	# Axial drive accelerates rolling through ground friction. Banking controls
+	# the axle tilt; no player torque directly commands a yaw rate or heading.
+	input_torque = axle * (drive - brake) \
+		+ TorusSteering.bank_torque(state, axle, actions.z, tuning)
 	state.apply_torque(input_torque)
+	if grounded and not _hop_locked and not is_zero_approx(actions.z) \
+			and not Input.is_action_just_pressed("hop"):
+		# The lower-pivot reaction supplies both linear impulse J and angular
+		# impulse r x J. Keep this support constraint off during hops and flight.
+		bank_pivot_impulse = TorusSteering.pivot_impulse(state, axle, _support_contacts, tuning)
+		bank_pivot_position = TorusSteering.pivot_point(_support_contacts, tuning.lean_pivot_height)
+		var arm := bank_pivot_position - (state.transform.origin + state.center_of_mass)
+		bank_pivot_torque_impulse = arm.cross(bank_pivot_impulse)
+		state.apply_impulse(bank_pivot_impulse, bank_pivot_position - state.transform.origin)
 	if Input.is_action_just_pressed("hop") and grounded and not _hop_locked:
 		# One upward impulse, allowed once until a genuine airborne/landing cycle.
 		state.apply_central_impulse(Vector3.UP * tuning.hop_impulse)
@@ -168,6 +184,10 @@ func _reset_to_checkpoint(state: PhysicsDirectBodyState3D) -> void:
 	_previous_velocity = Vector3.ZERO
 	grounded = false
 	contact_count = 0
+	_support_contacts = []
+	bank_pivot_impulse = Vector3.ZERO
+	bank_pivot_position = Vector3.ZERO
+	bank_pivot_torque_impulse = Vector3.ZERO
 	gyroscopic_torque = Vector3.ZERO
 	elapsed = 0.0
 	has_nudged = false
@@ -187,6 +207,11 @@ func _publish_sample(state: PhysicsDirectBodyState3D, contacts: Dictionary) -> v
 		"gyroscopic_torque": -state.angular_velocity.cross(
 			state.inverse_inertia_tensor.inverse() * state.angular_velocity),
 		"gyro_applied_torque": gyroscopic_torque, "contacts": contacts.contacts,
+		"bank_pivot_impulse": bank_pivot_impulse,
+		"bank_pivot_position": bank_pivot_position,
+		"bank_pivot_torque_impulse": bank_pivot_torque_impulse,
+		"bank_pivot_force": bank_pivot_impulse / state.step,
+		"bank_pivot_torque": bank_pivot_torque_impulse / state.step,
 		"speed": state.linear_velocity.length(), "spin_rate": spin_rate,
 		"lean_degrees": lean_degrees, "grounded": grounded, "slip_ratio": contacts.slip_ratio,
 	}
@@ -205,8 +230,12 @@ func _apply_gyroscopic_torque(state: PhysicsDirectBodyState3D, orientation: Basi
 	# rotational energy. Six fixed-point iterations converge at this scene's
 	# 240 Hz and spin range. This changes only the torque's numerical integration.
 	var midpoint_omega := omega
+	# Player/assist torques act during the same step. Including them in the
+	# midpoint prevents artificial angular-momentum drift while steering.
+	var external_torque := input_torque + assist_torque
 	for iteration in range(6):
 		var midpoint_torque := -midpoint_omega.cross(world_inertia * midpoint_omega)
-		midpoint_omega = omega + state.inverse_inertia_tensor * midpoint_torque * (state.step * 0.5)
+		midpoint_omega = omega + state.inverse_inertia_tensor \
+			* (external_torque + midpoint_torque) * (state.step * 0.5)
 	gyroscopic_torque = -midpoint_omega.cross(world_inertia * midpoint_omega)
 	state.apply_torque(gyroscopic_torque)

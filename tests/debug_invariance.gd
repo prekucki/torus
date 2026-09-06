@@ -4,7 +4,8 @@ extends SceneTree
 const TICKS := 720
 const TOLERANCE := 0.00001
 const SNAPSHOT_VECTORS := ["origin", "linear_velocity", "angular_velocity",
-	"spin_axis", "input_torque", "assist_torque", "gyroscopic_torque"]
+	"spin_axis", "input_torque", "assist_torque", "gyroscopic_torque",
+	"bank_pivot_impulse", "bank_pivot_force", "bank_pivot_torque"]
 
 var _observed_world: SubViewport
 var _plain: TorusBody
@@ -17,6 +18,7 @@ var _max_error: float = 0.0
 var _max_speed: float = 0.0
 var _max_spin: float = 0.0
 var _max_gyro: float = 0.0
+var _max_pivot: float = 0.0
 var _started_at: int = 0
 var _failed: bool = false
 
@@ -61,7 +63,8 @@ func _create_body(body_name: String, world: SubViewport) -> TorusBody:
 	var body := TorusBody.new()
 	body.name = body_name
 	body.position = Vector3(0.0, 1.28, 0.0)
-	body.controls_enabled = false
+	body.controls_enabled = true
+	body.tuning.rumble_enabled = false
 	body.initial_spin = 24.0
 	body.automatic_nudge = true
 	body.manual_gyroscope = true
@@ -90,6 +93,16 @@ func _probe_draw_paths() -> void:
 	_observed.physics_sampled.emit(sample)
 	_check(_debug.get_node("Vectors").mesh.get_surface_count() > 0,
 		"Contact snapshot must render")
+	sample.bank_pivot_position = Vector3.DOWN
+	sample.bank_pivot_force = Vector3.RIGHT * 2.0
+	sample.bank_pivot_torque = Vector3.BACK * 2.0
+	_observed.physics_sampled.emit(sample)
+	var pivot_label := false
+	var reaction_label := false
+	for label: Label3D in _debug._labels:
+		pivot_label = pivot_label or (label.visible and label.text == "Bank pivot force 2.00")
+		reaction_label = reaction_label or (label.visible and label.text == "Assist torque 2.00")
+	_check(pivot_label and reaction_label, "Debug must show pivot force and its angular reaction")
 	_debug.set_enabled(false)
 	_check(visual.material_override == _original_material, "Toggle must restore original material")
 	_check(_observed.linear_velocity == Vector3.ZERO and _observed.angular_velocity == Vector3.ZERO,
@@ -106,6 +119,10 @@ func _physics_process(_delta: float) -> bool:
 			or _observed.last_sample.is_empty():
 		return false
 	_ticks += 1
+	if _ticks == 240:
+		Input.action_press("lean_right")
+	elif _ticks == 480:
+		Input.action_release("lean_right")
 	_check(is_equal_approx(_plain.elapsed, _observed.elapsed), "Bodies must advance together")
 	for key in SNAPSHOT_VECTORS:
 		_compare_vector(_plain.last_sample[key], _observed.last_sample[key], key)
@@ -126,6 +143,7 @@ func _physics_process(_delta: float) -> bool:
 	_max_speed = maxf(_max_speed, _plain.last_sample.speed)
 	_max_spin = maxf(_max_spin, absf(_plain.last_sample.spin_rate))
 	_max_gyro = maxf(_max_gyro, _plain.last_sample.gyroscopic_torque.length())
+	_max_pivot = maxf(_max_pivot, _plain.last_sample.bank_pivot_force.length())
 	if _ticks >= TICKS and not _failed:
 		_finish()
 	return false
@@ -145,6 +163,7 @@ func _finish() -> void:
 		"Fixture must have travelled")
 	_check(_plain.has_nudged and _observed.has_nudged and _max_gyro > 1.0,
 		"Fixture must exercise the lean nudge and gyroscopic torque")
+	_check(_max_pivot > 0.01, "Fixture must exercise the actual supported bank correction")
 	# Removing an enabled debug observer must also restore the original material.
 	_observed_world.remove_child(_debug)
 	_debug.free()

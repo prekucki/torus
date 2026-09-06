@@ -153,17 +153,82 @@ func _test_brakes() -> void:
 
 func _test_lean() -> void:
 	for yaw in [0.0, PI * 0.5]:
-		var body := await _body(0.0, Basis(Vector3.UP, yaw))
-		Input.action_press("lean_right", 1.0)
-		var sample := await _ticks(body, 1)
-		var axle: Vector3 = sample.spin_axis
-		var expected := axle.cross(Vector3.UP).normalized() * body.tuning.lean_torque
-		_check((sample.input_torque as Vector3).is_equal_approx(expected),
-			"lean torque follows ring axle at yaw %.0f" % rad_to_deg(yaw))
-		var after := await _ticks(body, 20)
-		_check((after.angular_velocity as Vector3).dot(expected) > 0.01,
-			"lean torque physically tilts the ring")
-		await _dispose(body)
+		for direction: float in [-1.0, 1.0]:
+			var action := "lean_right" if direction > 0.0 else "lean_left"
+			var description := "%s at yaw %.0f" % [action, rad_to_deg(yaw)]
+			var stopped := await _body(0.0, Basis(Vector3.UP, yaw))
+			stopped.tuning.lean_damping = 0.0 # Isolate the low-spin actuator.
+			Input.action_press(action, 1.0)
+			var low_spin := await _ticks(stopped, 1)
+			var axle: Vector3 = low_spin.spin_axis
+			var fallback := axle.cross(Vector3.UP).normalized() \
+				* direction * stopped.tuning.lean_low_spin_torque
+			_check((low_spin.input_torque as Vector3).is_equal_approx(fallback),
+				"low-spin roll torque follows the ring: " + description)
+			var tipped := await _ticks(stopped, 20)
+			_check(tipped.lean_degrees * direction > 0.1,
+				"low-spin input physically tips toward the requested side: " + description)
+			await _dispose(stopped)
+
+			# Start slightly banked so world UP is distinguishable from its
+			# projection into the ring plane; preserve real high-spin gyroscopy.
+			var orientation := Basis(Vector3.UP, yaw) \
+				* Basis(Vector3.BACK, deg_to_rad(5.0 * direction))
+			var spinning := await _body(24.0, orientation)
+			spinning.manual_gyroscope = true
+			spinning.tuning.lean_damping = 0.0 # Isolate the gyroscopic bank axis.
+			Input.action_press(action, 1.0)
+			var high_spin := await _ticks(spinning, 1)
+			axle = high_spin.spin_axis
+			var bank_axis := Vector3.UP.slide(axle).normalized()
+			var torque: Vector3 = high_spin.input_torque
+			_check(torque.normalized().is_equal_approx(bank_axis * direction) \
+				and absf(torque.length() - spinning.tuning.lean_torque) < 0.001,
+				"high-spin bank torque uses the ring's projected-up axis and torque cap: " + description)
+			_check(absf(torque.dot(axle.cross(Vector3.UP).normalized())) < 0.0001,
+				"high-spin input does not apply the former forward-axis yaw torque: " + description)
+			var banked := await _ticks(spinning, 60)
+			_check(banked.lean_degrees * direction > 7.0,
+				"high-spin gyro input increases the requested bank: " + description)
+			_check((banked.linear_velocity as Vector3).is_zero_approx() \
+				and spinning.bank_pivot_impulse.is_zero_approx(),
+				"airborne banking adds no pivot or linear impulse: " + description)
+			_release_inputs()
+			var released := await _ticks(spinning, 1)
+			_check((released.input_torque as Vector3).is_zero_approx(),
+				"releasing bank input adds no automatic righting torque: " + description)
+			await _dispose(spinning)
+
+	# At 6 rad/s, a 6 N m/(rad/s) feedback gain leaves headroom below the
+	# torque cap, so the rate-feedback law can be checked independently.
+	var damped := await _body(6.0)
+	damped.manual_gyroscope = true
+	damped.tuning.lean_damping = 6.0
+	Input.action_press("lean_right", 1.0)
+	var starting := await _ticks(damped, 1)
+	var forward := (starting.spin_axis as Vector3).cross(Vector3.UP).normalized()
+	var requested_rate := deg_to_rad(damped.tuning.lean_rate_limit)
+	_check(absf((starting.input_torque as Vector3).dot(forward) \
+		- requested_rate * damped.tuning.lean_damping) < 0.0001,
+		"bank-rate feedback starts rolling toward the requested rate")
+	var moving := await _ticks(damped, 30)
+	forward = (moving.spin_axis as Vector3).cross(Vector3.UP).normalized()
+	_check((moving.angular_velocity as Vector3).dot(forward) > 0.05,
+		"rate-feedback fixture develops actual rightward bank motion")
+	Input.action_release("lean_right")
+	Input.action_press("lean_left", 1.0)
+	var reversing := await _ticks(damped, 1)
+	forward = (reversing.spin_axis as Vector3).cross(Vector3.UP).normalized()
+	var actual_rate := (reversing.angular_velocity as Vector3).dot(forward)
+	var expected_feedback := (-requested_rate - actual_rate) * damped.tuning.lean_damping
+	_check((reversing.input_torque as Vector3).length() < damped.tuning.lean_torque - 0.1 \
+		and absf((reversing.input_torque as Vector3).dot(forward) - expected_feedback) < 0.0001,
+		"reversing bank input counters the measured bank rate without torque clipping")
+	_release_inputs()
+	var released := await _ticks(damped, 1)
+	_check((released.input_torque as Vector3).is_zero_approx(),
+		"releasing input disables bank-rate feedback as well as bank actuation")
+	await _dispose(damped)
 
 
 func _test_hop() -> void:
@@ -178,6 +243,9 @@ func _test_hop() -> void:
 	var body := await _body()
 	body.gravity_scale = 1.0
 	body.manual_gyroscope = true
+	# The free-flight helper disables friction; ground-contact checks need the
+	# playable surface friction to dissipate tangential motion from landing.
+	body.surface_friction = 0.8
 	body.set_checkpoint(Transform3D(Basis.IDENTITY, Vector3(0, 1.28, 0)))
 	body.request_reset()
 	await _ticks(body, 2)

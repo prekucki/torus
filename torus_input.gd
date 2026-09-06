@@ -73,13 +73,15 @@ func sample() -> Vector3:
 	# Separate strengths allow both triggers to contribute to the same tick.
 	var acceleration := Input.get_action_strength(&"accelerate")
 	var braking := Input.get_action_strength(&"brake")
-	var steering := Input.get_action_strength(&"lean_right") - Input.get_action_strength(&"lean_left")
+	var right := Input.get_action_strength(&"lean_right")
+	var left := Input.get_action_strength(&"lean_left")
 	var deadzone := _stick_deadzone()
 	var exponent := maxf(tuning.response_exponent, 0.01) if tuning != null else 1.5
-	var magnitude := clampf((absf(steering) - deadzone) / (1.0 - deadzone), 0.0, 1.0)
-	# Keyboard strengths of 1 remain 1 through both deadzone and response curve.
-	steering = signf(steering) * pow(magnitude, exponent)
-	return Vector3(acceleration, braking, steering)
+	# Filter each direction before mixing: opposite stick drift must not weaken
+	# a held key. Intentional opposing inputs subtract their shaped strengths.
+	right = pow(clampf((right - deadzone) / (1.0 - deadzone), 0.0, 1.0), exponent)
+	left = pow(clampf((left - deadzone) / (1.0 - deadzone), 0.0, 1.0), exponent)
+	return Vector3(acceleration, braking, right - left)
 
 
 func _stick_deadzone() -> float:

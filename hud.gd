@@ -75,7 +75,8 @@ func _build_hud() -> void:
 		"[color=#ffffff]● Contact[/color]   [color=#65e572]↑ Normal[/color]   "
 		+ "[color=#ffad42]↑ Traction (estimated)[/color]   [color=#48cfff]↑ Velocity[/color]\n"
 		+ "[color=#cb86ff]↑ Angular velocity[/color]   [color=#fff06a]↑ Player torque[/color]\n"
-		+ "[color=#ff73b4]↑ Assist torque (0)[/color]   [color=#ff5f65]↑ Gyro torque[/color]"
+		+ "[color=#ff73b4]↑ Assist torque[/color]   [color=#ff5f65]↑ Gyro torque[/color]\n"
+		+ "[color=#64e4c6]↑ Bank pivot force[/color]"
 	)
 	_debug_box.add_child(legend)
 

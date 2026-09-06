@@ -15,7 +15,7 @@ the project. Phases 1 and 2 are implemented. Phase 3 assists and Phase 4 track/l
 wait for confirmation.
 
 The torus starts with a spin impulse and rolls through ground friction. The
-camera follows travel with a side offset so the hollow ring is visible. The
+camera follows travel from directly behind so left/right bank looks symmetric. The
 playable scene has no automatic nudge. Use small lean inputs while moving; at low
 speed the unassisted ring can fall over. Reset to start a fresh run.
 
@@ -36,10 +36,33 @@ by `torus_input.gd`; their deadzones are zero so the configurable stick deadzone
 is applied once. Default stick response is `sign(x) * ((abs(x)-0.15)/0.85)^1.5`
 outside the deadzone. Keyboard keys retain full strength.
 
-All driving/leaning uses torque inside `_integrate_forces`. RT and LT contribute
+All player driving/banking commands use torque inside `_integrate_forces`; the
+optional lower-pivot correction described below uses contact impulses. RT and LT contribute
 independently to the net axle torque. Braking opposes current spin and caps its
 one-step effect at zero; LT alone does not drive in reverse. Contacts can still
 rotate a stopped ring, as expected in a free rigid-body simulation.
+
+Left/right now requests a **bank angle**, not a yaw rate. Full input requests
+25 degrees; the shaped analog value scales that target. A gyro-aware torque
+changes bank about the travel direction, using the perpendicular torque axis
+(`up` projected into the ring plane). At very low spin, ordinary roll torque
+provides control instead. Turning then emerges from bank, spin and ground
+contact. A brief initial countersteer is possible; no heading or velocity is
+assigned. Releasing input applies no bank torque and does not automatically
+return the body upright. Bank-rate feedback damps rocking without damping axle
+spin. At high speed, changing sides takes longer because the bank actuator has
+a finite torque cap and must redirect greater angular momentum.
+
+The requested **manual lower pivot** is a separate, explicit contact assist.
+While banking on support it applies bounded impulses **at the support point**,
+5 cm above the averaged ground contacts by default. It reduces lateral/vertical
+velocity at that point using the full angular velocity and contact effective
+mass, including the impulse's angular reaction. It adds no forward impulse,
+does not relocate the center of mass, and disables on hop or loss of support.
+Applying this correction at the center of mass instead would suppress the
+contact torque needed for a natural turn. This is a soft contact constraint,
+not a fixed joint or a kinematic transform rotation.
+Set `Lean Pivot Strength` to zero to compare against unassisted contacts.
 
 Hop applies one vertical impulse only on an upward-facing support contact.
 Wall contacts do not qualify. Holding the button or pressing it again in flight
@@ -55,10 +78,17 @@ placement resets with the body.
 ## Live tuning and debug
 
 While running in the editor, select **Remote > ControlsLab > Torus > Tuning**.
-The `TorusTuning` resource exposes acceleration/braking/lean torque, hop impulse,
+The `TorusTuning` resource exposes acceleration/braking/bank torque, hop impulse,
 stick deadzone/curve, support-contact threshold, hop rearm time, and rumble.
-Defaults are 18 / 24 / 30 N·m, a 10.5 N·s hop, deadzone 0.15, and exponent 1.5.
+Defaults are 18 / 24 / 30 N·m (bank torque is a cap), a 10.5 N·s hop, deadzone
+0.15, and exponent 1.5. Bank target limit is 25 degrees, bank-rate limit is
+40 degrees/s, response is 3/s, and bank-rate feedback is 20 N·m per rad/s.
+The lower pivot defaults to 5 cm above the
+support contacts, strength 1, response 40/s, and a correction acceleration cap
+of 20 m/s². These values are live-editable; general Phase 3 assists remain deferred.
 Edit geometry and base damping on the Torus node itself.
+`ChaseCamera > Side Offset` can restore an angled view (4.5 m in the original
+physics lab); zero in the playable scene avoids perspective-induced bank asymmetry.
 
 Press **D / Back** for the separate, removable `TorusDebug` node. It makes the
 torus 25% opaque with thin outlines, draws labeled vectors each physics tick,
@@ -67,7 +97,9 @@ and shows speed, spin, lean, grounded state, and slip beside the HUD. Its
 
 - White: contact point; green: support normal; orange: estimated traction.
 - Cyan: linear velocity at center of mass; purple: angular velocity.
-- Yellow: net player torque; pink: assist torque (zero in Phase 2).
+- Yellow: net player torque; pink: assist torque, including the lower pivot's
+  angular impulse divided by the timestep. General Phase 3 assists are still zero.
+- Mint: lower-pivot impulse divided by the timestep, drawn at its application point.
 - Red: instantaneous gyroscopic term `-ω × (I_world ω)`. The actual applied
   midpoint-integrated torque is also retained in the telemetry snapshot.
 
@@ -101,10 +133,12 @@ Run `mise run physics-lab`, or open `physics_validation.tscn` and press **F6**.
 This scene has controls disabled and applies one automatic lean impulse at
 **2 seconds**. Stop with **F8**, edit the Torus node, and restart to compare runs.
 
-- `Major Radius` R = 1 m; `Minor Radius` r = 0.25 m; 20 capsule colliders.
+- `Major Radius` R = 1 m; `Minor Radius` r = 0.25 m; 100 capsule colliders.
+  The outside diameter remains 2.5 m; collider count changes smoothness, not size.
 - The axle is local +X. Capsule centerlines form chords of the YZ major circle,
   with rounded overlapping ends. Maximum centerline error is
-  `R * (1 - cos(PI / capsule_count))`, about 1.23 cm at the defaults.
+  `R * (1 - cos(PI / capsule_count))`, about 0.49 mm at the defaults
+  (previously 12.31 mm with 20 capsules). The inspector supports 12–128 capsules.
 - The matching `TorusMesh` uses `inner_radius = R-r`, `outer_radius = R+r`.
 - Mass = 3 kg; initial spin = 24 rad/s; nudge = 8 N·m·s about the forward axis;
   angular damping = 0; linear damping =
@@ -147,8 +181,13 @@ The full `mise run validate` suite also exercises real keyboard/gamepad events,
 analog torque response, simultaneous inputs, braking near zero and in either
 spin direction, ring-relative lean, grounded hopping, reset, and debug on/off
 physics equivalence. A separate rolling-steering regression uses the playable
-scene with gravity, friction, spin and gyro enabled: it checks camera-relative
-left/right turns under keyboard and analog input, with and without acceleration.
+scene with gravity, friction, spin and gyro enabled: it checks sustained bank,
+left/right symmetry from identical starts, and turns under keyboard and analog
+input, with and without acceleration. The camera and grounded pivot have
+separate regressions. `tests/steering_lifecycle.gd` additionally covers a six-second
+held bank, a four-second reversal, and three seconds after release, both coasting
+and accelerating. The pivot regression checks its impulse bound, angular reaction,
+non-increasing kinetic energy on a stationary support, and hop/airborne exclusions.
 Free-flight conservation runs for six simulated seconds.
 Controller input is tested with synthetic events; physical rumble needs a
 controller check on your machine.
@@ -169,7 +208,17 @@ midpoint** step (six fixed-point iterations), keeping all physics additive via
 The full local inertia is recovered from the body's world inverse tensor, then
 rotated back with `B * I_local * B.transposed()` each tick.
 
-On Godot **4.7.2.stable.official.ed1daf0bf**, the stabilized manual implementation:
+The midpoint predictor includes the known player and assist torques as well as
+the gyroscopic term. Omitting the external torques previously passed the
+torque-free test but violated angular-momentum balance during steering.
+`tests/gyro_forced.gd` covers this independently of the banking controller;
+its `--uncoupled-gyro` option intentionally reproduces the old failing predictor.
+It checks both angular momentum and rotational energy against external work.
+There is no automatic energy normalization: friction, damping, impacts and
+the explicit pivot correction must not be mistaken for torque-free motion.
+
+Historical baseline on Godot **4.7.2.stable.official.ed1daf0bf**, using the
+original **20-capsule** collider and stabilized manual implementation:
 
 - Stayed upright for the 12-second straight-line baseline (lean below 0.01°).
 - Reached **19.37° maximum lean**, **33.43° peak axle heading deflection**, and
@@ -180,9 +229,11 @@ On Godot **4.7.2.stable.official.ed1daf0bf**, the stabilized manual implementati
   are 3°, 2%, and 2% respectively over six simulated seconds.
 - Fell flat to **90° lean** with zero initial spin, as expected.
 
-The ring has visible small contact bounces from its 20-capsule approximation and
-eventually loses speed to contact losses and drag. Finite-rate integration is
-approximate; these results validate the defaults over the stated windows. Keep
+The denser 100-capsule default reduces the geometric unevenness of the original
+collider. A fresh 12-second automatic-nudge run reached 17.32 degrees peak bank
+and 30.25 degrees axle deflection, with contacts on 99% of samples. The ring
+still loses speed to contact losses and drag. Finite-rate integration is
+approximate; historical values above describe the original collider. Keep
 240 Hz when reproducing them. Changing dimensions, mass, spin, or timestep calls
 for rerunning the conservation and rolling tests.
 

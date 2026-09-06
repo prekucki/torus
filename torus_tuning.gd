@@ -7,6 +7,19 @@ extends Resource
 @export_range(0.0, 100.0, 0.1) var braking_torque: float = 24.0
 @export_range(0.0, 100.0, 0.1) var lean_torque: float = 30.0
 
+@export_group("Motorcycle bank control")
+@export_range(5.0, 45.0, 0.5) var lean_angle_limit: float = 25.0
+@export_range(5.0, 120.0, 1.0) var lean_rate_limit: float = 40.0
+@export_range(0.1, 10.0, 0.1) var lean_response: float = 3.0
+@export_range(0.0, 60.0, 0.1) var lean_damping: float = 20.0
+@export_range(0.0, 20.0, 0.1) var lean_low_spin_torque: float = 4.0
+
+@export_group("Grounded bank pivot (manual assist)")
+@export_range(0.0, 1.0, 0.05) var lean_pivot_strength: float = 1.0
+@export_range(0.0, 0.5, 0.01) var lean_pivot_height: float = 0.05
+@export_range(1.0, 120.0, 1.0) var lean_pivot_response: float = 40.0
+@export_range(0.0, 50.0, 0.5) var lean_pivot_max_acceleration: float = 20.0
+
 @export_group("Analog response")
 @export_range(0.0, 0.9, 0.01) var stick_deadzone: float = 0.15
 @export_range(0.2, 4.0, 0.05) var response_exponent: float = 1.5

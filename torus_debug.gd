@@ -15,6 +15,7 @@ const ANGULAR_COLOR := Color("cb86ff")
 const INPUT_COLOR := Color("fff06a")
 const ASSIST_COLOR := Color("ff73b4")
 const GYRO_COLOR := Color("ff5f65")
+const PIVOT_COLOR := Color("64e4c6")
 
 var enabled: bool = false
 var _mesh := ImmediateMesh.new()
@@ -120,10 +121,20 @@ func _on_physics_sampled(sample: Dictionary) -> void:
 		body_column - up * 0.42)
 	_draw_arrow(origin, sample["input_torque"], INPUT_COLOR, "Player torque",
 		body_column - up * 0.84)
-	_draw_arrow(origin, sample["assist_torque"], ASSIST_COLOR, "Assist torque",
+	# Include the lower-pivot impulse's average torque for display only. The
+	# physics integrator must not apply that instantaneous angular impulse twice.
+	var assist: Vector3 = sample["assist_torque"] \
+		+ sample.get("bank_pivot_torque", Vector3.ZERO)
+	_draw_arrow(origin, assist, ASSIST_COLOR, "Assist torque",
 		body_column - up * 1.26)
 	_draw_arrow(origin, sample["gyroscopic_torque"], GYRO_COLOR, "Gyro torque",
 		body_column - up * 1.68)
+	var pivot_force: Vector3 = sample.get("bank_pivot_force", Vector3.ZERO)
+	var pivot: Vector3 = sample.get("bank_pivot_position", origin)
+	if not pivot_force.is_zero_approx():
+		_draw_marker(pivot, PIVOT_COLOR, 0.055)
+	_draw_arrow(pivot if not pivot_force.is_zero_approx() else origin, pivot_force,
+		PIVOT_COLOR, "Bank pivot force", body_column - up * 2.1)
 	var contact_index := 0
 	for contact: Dictionary in sample["contacts"]:
 		var point: Vector3 = contact["position"]

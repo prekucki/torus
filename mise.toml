@@ -12,11 +12,15 @@ run = [
   "godot --headless --path . --script res://tests/physics_validation.gd -- --manual",
   "godot --headless --path . --script res://tests/physics_validation.gd -- --manual --no-nudge",
   "godot --headless --path . --script res://tests/gyro_conservation.gd -- --manual",
+  "godot --headless --path . --script res://tests/gyro_forced.gd",
   "godot --headless --path . --script res://tests/input_mapping.gd",
   "godot --headless --path . --script res://tests/controls_physics.gd",
+  "godot --headless --path . --script res://tests/bank_pivot.gd",
   "godot --headless --path . --script res://tests/rolling_steering.gd",
+  "godot --headless --path . --script res://tests/steering_lifecycle.gd",
   "godot --headless --path . --script res://tests/debug_invariance.gd",
   "godot --headless --path . --script res://tests/effects_invariance.gd",
+  "godot --headless --path . --script res://tests/chase_camera.gd",
 ]
 
 [tasks.play]

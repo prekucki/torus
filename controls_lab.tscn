@@ -44,6 +44,9 @@ controls_enabled = true
 tuning = SubResource("Resource_tuning")
 automatic_nudge = false
 
+[node name="ChaseCamera" parent="." index="4"]
+side_offset = 0.0
+
 [node name="ExperimentNote" parent="." index="5"]
 visible = false
 

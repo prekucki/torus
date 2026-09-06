@@ -19,6 +19,7 @@ func _run() -> void:
 	_test_mappings()
 	_test_analog()
 	_test_overlapping_sources()
+	_test_stick_drift()
 	_test_device_hints()
 	_clear_events()
 	for failure in _failures:
@@ -104,6 +105,38 @@ func _test_overlapping_sources() -> void:
 	_near(_reader.sample().z, 1.0, "keyboard steering overrides weaker held stick")
 	_key(KEY_RIGHT, false)
 	_near(_reader.sample().z, pow(0.5, 1.5), "key release preserves held analog steering")
+	# Intentional opposing input subtracts each direction's shaped strength.
+	# A half-response stick contributes 0.5^1.5 against a full-strength key.
+	_axis(JOY_AXIS_LEFT_X, -0.575)
+	_key(KEY_RIGHT, true)
+	_near(_reader.sample().z, 1.0 - pow(0.5, 1.5), "left stick opposes right key after shaping")
+	_key(KEY_LEFT, true)
+	_near(_reader.sample().z, 0.0, "both full-strength keys cancel with a held stick")
+	_key(KEY_RIGHT, false)
+	_near(_reader.sample().z, -1.0, "left key overrides same-side analog steering")
+	_key(KEY_LEFT, false)
+	_near(_reader.sample().z, -pow(0.5, 1.5), "left key release preserves held stick")
+	_axis(JOY_AXIS_LEFT_X, 0.575)
+	_key(KEY_LEFT, true)
+	_near(_reader.sample().z, pow(0.5, 1.5) - 1.0, "right stick opposes left key after shaping")
+	_axis(JOY_AXIS_LEFT_X, -0.575)
+	_near(_reader.sample().z, -1.0, "stick crossing sides restores full held key strength")
+	_axis(JOY_AXIS_LEFT_X, 0.0)
+	_near(_reader.sample().z, -1.0, "stick release preserves held left key")
+	_clear_events()
+
+
+func _test_stick_drift() -> void:
+	for noise in [0.1, -0.1, 0.14, -0.14]:
+		_axis(JOY_AXIS_LEFT_X, noise)
+		_near(_reader.sample().z, 0.0, "idle stick drift %+.2f is ignored" % noise)
+		_key(KEY_LEFT, true)
+		_near(_reader.sample().z, -1.0, "left key stays full with stick drift %+.2f" % noise)
+		_key(KEY_LEFT, false)
+		_near(_reader.sample().z, 0.0, "released key leaves only ignored drift %+.2f" % noise)
+		_key(KEY_RIGHT, true)
+		_near(_reader.sample().z, 1.0, "right key stays full with stick drift %+.2f" % noise)
+		_key(KEY_RIGHT, false)
 	_clear_events()
 
 

@@ -35,9 +35,13 @@ func _process(delta: float) -> void:
 	velocity.y = 0.0
 	var blend := 1.0 - exp(-follow_response * delta)
 	if velocity.length_squared() > 1.0:
-		_travel_direction = _travel_direction.slerp(velocity.normalized(), blend).normalized()
+		# Follow horizontal yaw without normalizing a near-zero 3D rotation axis.
+		var heading := atan2(_travel_direction.x, _travel_direction.z)
+		var desired_heading := atan2(velocity.x, velocity.z)
+		heading = lerp_angle(heading, desired_heading, blend)
+		_travel_direction = Vector3(sin(heading), 0.0, cos(heading))
 	var focus := target.global_position + Vector3.UP * 0.4
-	# A modest side view exposes the hollow ring and makes lean easier to judge.
+	# Optional shoulder view exposes the hole; centered play view keeps banks symmetric.
 	var side := _travel_direction.cross(Vector3.UP) * side_offset
 	var desired := focus - _travel_direction * follow_distance + Vector3.UP * follow_height + side
 	global_position = global_position.lerp(desired, blend) if _placed else desired
