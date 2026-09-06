@@ -1,0 +1,19 @@
+[tools]
+godot = "4.7.2"
+
+[tasks.import]
+description = "Import the Godot project and check scripts"
+run = "godot --headless --path . --editor --import"
+
+[tasks.validate]
+description = "Check rolling precession and free-flight gyro conservation"
+depends = ["import"]
+run = [
+  "godot --headless --path . --script res://tests/physics_validation.gd -- --manual",
+  "godot --headless --path . --script res://tests/physics_validation.gd -- --manual --no-nudge",
+  "godot --headless --path . --script res://tests/gyro_conservation.gd -- --manual",
+]
+
+[tasks.play]
+description = "Run Phase 1"
+run = "godot --path ."

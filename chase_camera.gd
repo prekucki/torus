@@ -1,0 +1,28 @@
+extends Camera3D
+## Visual follow only. Ring rotation never becomes camera rotation.
+
+@export var target: RigidBody3D
+@export var follow_distance: float = 6.0
+@export var follow_height: float = 3.0
+@export var side_offset: float = 4.5
+@export var follow_response: float = 5.0
+
+var _travel_direction := Vector3.FORWARD
+var _placed: bool = false
+
+
+func _process(delta: float) -> void:
+	if not is_instance_valid(target):
+		return
+	var velocity := target.linear_velocity
+	velocity.y = 0.0
+	var blend := 1.0 - exp(-follow_response * delta)
+	if velocity.length_squared() > 1.0:
+		_travel_direction = _travel_direction.slerp(velocity.normalized(), blend).normalized()
+	var focus := target.global_position + Vector3.UP * 0.4
+	# A modest side view exposes the hollow ring and makes lean easier to judge.
+	var side := _travel_direction.cross(Vector3.UP) * side_offset
+	var desired := focus - _travel_direction * follow_distance + Vector3.UP * follow_height + side
+	global_position = global_position.lerp(desired, blend) if _placed else desired
+	_placed = true
+	look_at(focus, Vector3.UP)
