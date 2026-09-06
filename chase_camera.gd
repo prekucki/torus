@@ -11,6 +11,23 @@ var _travel_direction := Vector3.FORWARD
 var _placed: bool = false
 
 
+func _ready() -> void:
+	if target is TorusBody:
+		(target as TorusBody).reset_completed.connect(_on_target_reset)
+		_on_target_reset()
+
+
+func _on_target_reset() -> void:
+	_placed = false
+	var body := target as TorusBody
+	# Positive axle spin rolls toward axle × UP; start behind that direction.
+	_travel_direction = body.checkpoint_transform.basis.x.cross(Vector3.UP).normalized()
+	if body.initial_spin < 0.0:
+		_travel_direction = -_travel_direction
+	if _travel_direction.is_zero_approx():
+		_travel_direction = Vector3.FORWARD
+
+
 func _process(delta: float) -> void:
 	if not is_instance_valid(target):
 		return

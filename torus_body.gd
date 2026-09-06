@@ -1,7 +1,13 @@
 class_name TorusBody
 extends RigidBody3D
-## Phase 1: a free rigid body; no player controls or balance assists.
+## All simulation changes happen in _integrate_forces or helpers called by it.
 ## Local +X is the axle; the ring lies in the local YZ plane.
+
+signal physics_sampled(sample: Dictionary)
+signal reset_completed
+
+@export var controls_enabled: bool = false
+@export var tuning: TorusTuning = TorusTuning.new()
 
 @export_group("Geometry (restart after editing)")
 @export_range(0.1, 5.0, 0.01) var major_radius: float = 1.0
@@ -27,11 +33,21 @@ var spin_rate: float = 0.0
 var contact_count: int = 0
 var gyroscopic_torque := Vector3.ZERO
 var has_nudged: bool = false
+var grounded: bool = false
+var input_torque := Vector3.ZERO
+var assist_torque := Vector3.ZERO
+var last_sample: Dictionary = {}
+var input_reader: TorusInput
+var checkpoint_transform := Transform3D.IDENTITY
 var _initialized: bool = false
+var _reset_requested: bool = false
+var _hop_locked: bool = false
+var _air_time: float = 0.0
+var _rumble_timer: float = 0.0
+var _previous_velocity := Vector3.ZERO
 
 
 func _ready() -> void:
-	assert(minor_radius < major_radius, "The torus hole requires minor_radius < major_radius.")
 	mass = 3.0
 	can_sleep = false
 	continuous_cd = true
@@ -41,49 +57,32 @@ func _ready() -> void:
 	angular_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
 	physics_material_override = PhysicsMaterial.new()
 	physics_material_override.bounce = 0.0
-	_build_ring()
+	TorusGeometry.build(self, major_radius, minor_radius, capsule_count)
+	checkpoint_transform = global_transform
+	input_reader = TorusInput.new()
+	input_reader.name = "PlayerInput"
+	input_reader.tuning = tuning
+	add_child(input_reader)
 
 
-func _build_ring() -> void:
-	# Each capsule joins adjacent points on the major circle. Overlapping round
-	# ends keep the compound continuous; the hole remains genuinely hollow.
-	for index in range(capsule_count):
-		var angle_a := TAU * float(index) / capsule_count
-		var angle_b := TAU * float(index + 1) / capsule_count
-		var point_a := Vector3(0.0, cos(angle_a), sin(angle_a)) * major_radius
-		var point_b := Vector3(0.0, cos(angle_b), sin(angle_b)) * major_radius
-		var chord := point_b - point_a
-		var capsule := CapsuleShape3D.new()
-		capsule.radius = minor_radius
-		# Godot capsule height includes both hemispheres.
-		capsule.height = chord.length() + 2.0 * minor_radius
-		var collision := CollisionShape3D.new()
-		collision.name = "RingCapsule%02d" % index
-		collision.shape = capsule
-		collision.position = (point_a + point_b) * 0.5
-		collision.basis = Basis(Quaternion(Vector3.UP, chord.normalized()))
-		add_child(collision)
+func set_checkpoint(checkpoint: Transform3D) -> void:
+	checkpoint_transform = checkpoint.orthonormalized()
 
-	var mesh := TorusMesh.new()
-	# TorusMesh uses hole/outer radii, not major/tube radii.
-	mesh.inner_radius = major_radius - minor_radius
-	mesh.outer_radius = major_radius + minor_radius
-	mesh.rings = 96
-	mesh.ring_segments = 24
-	var visual := MeshInstance3D.new()
-	visual.name = "TorusMesh"
-	visual.mesh = mesh
-	visual.rotation.z = PI * 0.5
-	var material := ShaderMaterial.new()
-	material.shader = preload("res://materials/torus.gdshader")
-	visual.material_override = material
-	add_child(visual)
+
+func request_reset() -> void:
+	_reset_requested = true
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	linear_damp = linear_damping
 	angular_damp = angular_damping
 	physics_material_override.friction = surface_friction
+	input_torque = Vector3.ZERO
+	assist_torque = Vector3.ZERO  # Phase 3 will supply this separate torque layer.
+	if _reset_requested or (controls_enabled and Input.is_action_just_pressed("reset")):
+		_reset_to_checkpoint(state)
+		_publish_sample(state, {"contacts": [], "slip_ratio": 0.0})
+		return
 	var orientation := state.transform.basis.orthonormalized()
 	var axle := orientation.x
 	if not _initialized:
@@ -92,6 +91,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var world_inertia := state.inverse_inertia_tensor.inverse()
 		state.apply_torque_impulse(world_inertia * (axle * initial_spin))
 		_initialized = true
+	var contact_data := TorusContacts.sample(state, axle,
+		major_radius + minor_radius, tuning.ground_normal_min_dot)
+	grounded = contact_data.grounded
+	_update_landing(state, contact_data.impact_impulse)
+	if controls_enabled:
+		input_reader.tuning = tuning
+		_apply_player_input(state, axle)
 
 	elapsed += state.step
 	if automatic_nudge and not has_nudged and elapsed >= nudge_after_seconds:
@@ -105,10 +111,86 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if manual_gyroscope:
 		_apply_gyroscopic_torque(state, orientation)
 
-	lean_degrees = rad_to_deg(asin(clampf(axle.dot(Vector3.UP), -1.0, 1.0)))
+	contact_count = state.get_contact_count()
+	_publish_sample(state, contact_data)
+	_previous_velocity = state.linear_velocity
+
+
+func _apply_player_input(state: PhysicsDirectBodyState3D, axle: Vector3) -> void:
+	var actions := input_reader.sample()
+	var drive := actions.x * tuning.acceleration_torque
+	var spin := state.angular_velocity.dot(axle)
+	var inverse_axle_inertia := axle.dot(state.inverse_inertia_tensor * axle)
+	var brake_direction := signf(spin) if not is_zero_approx(spin) else signf(drive)
+	# Brake opposes current spin. Cap its one-step effect at zero, accounting
+	# for simultaneous acceleration; LT alone never becomes a reverse motor.
+	var brake_limit := maxf(0.0, absf(spin) / (state.step * inverse_axle_inertia)
+		+ brake_direction * drive)
+	var brake := minf(actions.y * tuning.braking_torque, brake_limit) * brake_direction
+	var lean_axis := axle.cross(Vector3.UP).normalized()
+	# Axial drive accelerates rolling through ground friction. For positive
+	# spin, travel is axle × UP, so camera-right is -axle. Positive lean torque
+	# tips the rim toward camera-right and induces a rightward gyroscopic turn.
+	input_torque = axle * (drive - brake) + lean_axis * actions.z * tuning.lean_torque
+	state.apply_torque(input_torque)
+	if Input.is_action_just_pressed("hop") and grounded and not _hop_locked:
+		# One upward impulse, allowed once until a genuine airborne/landing cycle.
+		state.apply_central_impulse(Vector3.UP * tuning.hop_impulse)
+		_hop_locked = true
+
+
+func _update_landing(state: PhysicsDirectBodyState3D, impact: float) -> void:
+	_rumble_timer = maxf(0.0, _rumble_timer - state.step)
+	var landed := grounded and _air_time >= tuning.hop_rearm_airtime
+	if landed:
+		_hop_locked = false
+	_air_time = 0.0 if grounded else _air_time + state.step
+	var hard_landing := landed and -_previous_velocity.y >= tuning.landing_rumble_speed
+	if not controls_enabled or not tuning.rumble_enabled or _rumble_timer > 0.0:
+		return
+	if (hard_landing or impact >= tuning.collision_rumble_impulse) \
+			and input_reader.active_joypad in Input.get_connected_joypads():
+		Input.start_joy_vibration(input_reader.active_joypad, 0.25, 0.5, 0.12)
+		_rumble_timer = tuning.rumble_cooldown
+
+
+func _reset_to_checkpoint(state: PhysicsDirectBodyState3D) -> void:
+	# Reset alone relocates the body. Cancel momentum with additive impulses;
+	# neither driving nor resetting assigns linear/angular velocity directly.
+	state.apply_central_impulse(-state.linear_velocity / state.inverse_mass)
+	state.apply_torque_impulse(-(state.inverse_inertia_tensor.inverse() * state.angular_velocity))
+	state.transform = checkpoint_transform
+	state.sleeping = false
+	_reset_requested = false
+	_initialized = false
+	_hop_locked = false
+	_air_time = 0.0
+	_previous_velocity = Vector3.ZERO
+	grounded = false
+	contact_count = 0
+	gyroscopic_torque = Vector3.ZERO
+	elapsed = 0.0
+	has_nudged = false
+	reset_completed.emit()
+
+
+func _publish_sample(state: PhysicsDirectBodyState3D, contacts: Dictionary) -> void:
+	var axle := state.transform.basis.x.normalized()
+	lean_degrees = rad_to_deg(asin(clampf(axle.y, -1.0, 1.0)))
 	heading_radians = atan2(-axle.z, axle.x)
 	spin_rate = state.angular_velocity.dot(axle)
-	contact_count = state.get_contact_count()
+	# Read-only snapshots let HUD/debug nodes be removed without changing forces.
+	last_sample = {
+		"origin": state.transform.origin + state.center_of_mass,
+		"linear_velocity": state.linear_velocity, "angular_velocity": state.angular_velocity,
+		"spin_axis": axle, "input_torque": input_torque, "assist_torque": assist_torque,
+		"gyroscopic_torque": -state.angular_velocity.cross(
+			state.inverse_inertia_tensor.inverse() * state.angular_velocity),
+		"gyro_applied_torque": gyroscopic_torque, "contacts": contacts.contacts,
+		"speed": state.linear_velocity.length(), "spin_rate": spin_rate,
+		"lean_degrees": lean_degrees, "grounded": grounded, "slip_ratio": contacts.slip_ratio,
+	}
+	physics_sampled.emit(last_sample)
 
 
 func _apply_gyroscopic_torque(state: PhysicsDirectBodyState3D, orientation: Basis) -> void:

@@ -1,9 +1,9 @@
-; Torus Racer — Phase 1 physics validation only.
+; Torus Racer — Phase 2 controls, with the original physics lab preserved.
 config_version=5
 
 [application]
-config/name="Torus Racer — Physics Validation"
-run/main_scene="res://physics_validation.tscn"
+config/name="Torus Racer"
+run/main_scene="res://controls_lab.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 
 [display]
@@ -19,4 +19,5 @@ common/max_physics_steps_per_frame=32
 [rendering]
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.055, 0.075, 0.11, 1)

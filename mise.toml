@@ -6,14 +6,23 @@ description = "Import the Godot project and check scripts"
 run = "godot --headless --path . --editor --import"
 
 [tasks.validate]
-description = "Check rolling precession and free-flight gyro conservation"
+description = "Check physics, input controls, and presentation independence"
 depends = ["import"]
 run = [
   "godot --headless --path . --script res://tests/physics_validation.gd -- --manual",
   "godot --headless --path . --script res://tests/physics_validation.gd -- --manual --no-nudge",
   "godot --headless --path . --script res://tests/gyro_conservation.gd -- --manual",
+  "godot --headless --path . --script res://tests/input_mapping.gd",
+  "godot --headless --path . --script res://tests/controls_physics.gd",
+  "godot --headless --path . --script res://tests/rolling_steering.gd",
+  "godot --headless --path . --script res://tests/debug_invariance.gd",
+  "godot --headless --path . --script res://tests/effects_invariance.gd",
 ]
 
 [tasks.play]
-description = "Run Phase 1"
+description = "Run Phase 2 controls"
 run = "godot --path ."
+
+[tasks.physics-lab]
+description = "Run the original Phase 1 automatic experiment"
+run = "godot --path . --scene res://physics_validation.tscn"
