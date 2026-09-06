@@ -42,6 +42,8 @@ light_energy = 1.6
 [node name="Torus" parent="." index="3"]
 controls_enabled = true
 tuning = SubResource("Resource_tuning")
+capsule_count = 64
+linear_damping = 0.0
 automatic_nudge = false
 
 [node name="ChaseCamera" parent="." index="4"]

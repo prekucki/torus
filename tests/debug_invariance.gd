@@ -65,6 +65,12 @@ func _create_body(body_name: String, world: SubViewport) -> TorusBody:
 	body.position = Vector3(0.0, 1.28, 0.0)
 	body.controls_enabled = true
 	body.tuning.rumble_enabled = false
+	if "--bank-controller" in OS.get_cmdline_user_args():
+		body.tuning.direct_lean = false
+		body.tuning.lean_torque = 30.0
+	else:
+		body.capsule_count = 64
+		body.linear_damping = 0.0
 	body.initial_spin = 24.0
 	body.automatic_nudge = true
 	body.manual_gyroscope = true
@@ -163,7 +169,10 @@ func _finish() -> void:
 		"Fixture must have travelled")
 	_check(_plain.has_nudged and _observed.has_nudged and _max_gyro > 1.0,
 		"Fixture must exercise the lean nudge and gyroscopic torque")
-	_check(_max_pivot > 0.01, "Fixture must exercise the actual supported bank correction")
+	if _plain.tuning.direct_lean:
+		_check(is_zero_approx(_max_pivot), "Direct lean must leave the bank correction disabled")
+	else:
+		_check(_max_pivot > 0.01, "Fixture must exercise the actual supported bank correction")
 	# Removing an enabled debug observer must also restore the original material.
 	_observed_world.remove_child(_debug)
 	_debug.free()

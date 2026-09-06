@@ -1,5 +1,5 @@
 extends SceneTree
-## Long steering holds, reversal and release in the default playable world.
+## Long holds, reversal and release with the optional previous bank controller.
 ## Keep the 100-capsule rim, ground contact, gyro and bank pivot enabled.
 
 const LAB := preload("res://controls_lab.tscn")
@@ -31,6 +31,10 @@ func _run() -> void:
 		var scene := LAB.instantiate()
 		_body = scene.get_node("Torus") as TorusBody
 		_body.tuning.rumble_enabled = false
+		_body.tuning.direct_lean = false
+		_body.tuning.lean_torque = 30.0
+		_body.capsule_count = 100
+		_body.linear_damping = 0.01
 		world.add_child(scene)
 		_check(_body.capsule_count == 100 and _body.manual_gyroscope \
 			and _body.tuning.lean_pivot_strength > 0.0 \

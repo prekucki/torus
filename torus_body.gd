@@ -174,7 +174,7 @@ func _apply_player_input(state: PhysicsDirectBodyState3D, axle: Vector3) -> void
 	input_torque = axle * (drive - brake) \
 		+ TorusSteering.bank_torque(state, axle, actions.z, tuning)
 	state.apply_torque(input_torque)
-	if grounded and not _hop_locked and not is_zero_approx(actions.z) \
+	if not tuning.direct_lean and grounded and not _hop_locked and not is_zero_approx(actions.z) \
 			and not Input.is_action_just_pressed("hop"):
 		# The lower-pivot reaction supplies both linear impulse J and angular
 		# impulse r x J. Keep this support constraint off during hops and flight.

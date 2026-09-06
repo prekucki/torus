@@ -97,6 +97,11 @@ func _test_race_signals() -> void:
 func _test_debug(body: TorusBody, debug: Node3D) -> void:
 	debug.toggled.emit(true)
 	_check(_hud._debug_box.visible, "Physics debug signal reveals the tuning panel")
+	_check(_hud._assist_readout.text.contains("Direct lean") \
+		and _hud._assist_readout.text.contains("Bank-pivot assist: off"),
+		"Default direct lean reports the inactive pivot truthfully")
+	body.tuning.direct_lean = false
+	body.physics_sampled.emit({"speed": 0.0})
 	_check(_hud._assist_readout.text.contains("Bank-pivot strength %.2f" % body.tuning.lean_pivot_strength),
 		"Existing pivot strength is shown truthfully")
 	_check(_hud._assist_readout.text.contains("Phase 3 assists: not implemented"), "HUD does not imply deferred assists exist")
@@ -108,6 +113,7 @@ func _test_debug(body: TorusBody, debug: Node3D) -> void:
 		"Race HUD retains normal physics and rescue updates")
 	_check(_hud._readout.text.contains("Lean -20.0°"), "Existing detailed physics readout remains intact")
 	body.tuning.lean_pivot_strength = initial_strength
+	body.tuning.direct_lean = true
 	debug.toggled.emit(false)
 	_check(not _hud._debug_box.visible and _hud._race_box.visible, "Hiding debug leaves race information visible")
 

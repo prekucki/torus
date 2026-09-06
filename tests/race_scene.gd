@@ -22,6 +22,9 @@ func _run() -> void:
 	var hud := scene.get_node("HUD")
 	var markers := scene.get_node("CheckpointMarkers") as CheckpointMarkers
 	body.tuning.rumble_enabled = false
+	_check(body.tuning.direct_lean and body.capsule_count == 64 \
+		and is_zero_approx(body.linear_damping),
+		"Race inherits direct lean and the low-loss rim from the playable lab")
 	body.reset_completed.connect(func() -> void: _resets += 1)
 	await body.physics_sampled
 	_check(manager.target == body and hud.race_manager == manager \
@@ -69,6 +72,19 @@ func _run() -> void:
 	await body.physics_sampled
 	_check(absf(body.spin_rate - body.initial_spin) < 0.001,
 		"Checkpoint reset relaunches spin through the normal physics path")
+	for tick in range(240):
+		await body.physics_sampled
+	var initial_lean := body.lean_degrees
+	_key(KEY_RIGHT, true)
+	for tick in range(72):
+		await body.physics_sampled
+		_check(body.bank_pivot_impulse.is_zero_approx(),
+			"Direct lean on the circuit uses native contact without the old pivot assist")
+	_key(KEY_RIGHT, false)
+	_check(body.lean_degrees > initial_lean + 2.0,
+		"A short right input visibly leans the race body after checkpoint reset")
+	await body.physics_sampled
+	_check(body.input_torque.is_zero_approx(), "Releasing the race lean key removes player torque")
 	print("RACE SCENE lap_time=%.3f checkpoint=%s next=%d" % [
 		_race.get("lap_time", 0.0), checkpoint.origin, _race.get("next_gate", -1)])
 	scene.queue_free()

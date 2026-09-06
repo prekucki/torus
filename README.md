@@ -127,7 +127,7 @@ carry static collision. Terrain collision matches its visible mesh, so leaving
 the asphalt no longer makes the torus fall through the grass into hidden water.
 Palms, rocks and harbor furniture are cosmetic and batched where useful.
 Concave mesh colliders belong only to static road/terrain bodies—the torus
-remains a dynamic 100-capsule compound.
+remains a dynamic 64-capsule compound.
 
 `track_layout.gd` defines the shared centerline, bank transitions and jump.
 `track_builder.gd` extrudes the road, including cross-width subdivisions to
@@ -150,9 +150,11 @@ Use `mise run controls-lab` for the original flat playable scene, or
 independent of the new track.
 
 The torus starts with a spin impulse and rolls through ground friction. The
-camera follows travel from directly behind so left/right bank looks symmetric. The
-playable scene has no automatic nudge. Use small lean inputs while moving; at low
-speed the unassisted ring can fall over. Reset to recover at the last checkpoint.
+camera follows travel from directly behind the ring. The
+playable scene has no automatic nudge, uses a 64-capsule rim and zero linear
+damping so the ring coasts with only contact losses. Tap lean inputs while
+moving: a held key leans the ring past its balance point, and at low speed the
+unassisted ring can fall over. Reset to recover at the last checkpoint.
 
 ## Controls
 
@@ -172,13 +174,23 @@ by `torus_input.gd`; their deadzones are zero so the configurable stick deadzone
 is applied once. Default stick response is `sign(x) * ((abs(x)-0.15)/0.85)^1.5`
 outside the deadzone. Keyboard keys retain full strength.
 
-All player driving/banking commands use torque inside `_integrate_forces`; the
-optional lower-pivot correction described below uses contact impulses. RT and LT contribute
-independently to the net axle torque. Braking opposes current spin and caps its
+All driving/leaning uses torque inside `_integrate_forces`. RT and LT contribute
+independently to the net axle torque. Lean torque acts about the ring's in-plane
+up axis (world up while upright, perpendicular to axle and travel). On the
+spinning ring that torque precesses the axle vertically, so the rim rolls about
+the axis parallel to its travel with the ground contact as pivot, instead of
+yawing around the vertical axis. The lean rate is about `torque / (I_axle * spin)`
+and follows the spin sign, so right input always tips the top toward camera-right.
+At the default torque and cruising spin a full input leans about 55° per second.
+Ground friction keeps the contact point in place during the roll. Releasing the
+input stops the roll and keeps the lean angle; gravity on the leaned ring then
+turns it, as with a rolling coin, and opposite input straightens it again. Braking opposes current spin and caps its
 one-step effect at zero; LT alone does not drive in reverse. Contacts can still
 rotate a stopped ring, as expected in a free rigid-body simulation.
 
-Left/right now requests a **bank angle**, not a yaw rate. Full input requests
+For comparison, disable `Direct Lean` in `TorusTuning` to use the previous
+bank-angle controller (its original torque cap was 30 N·m). In this optional mode,
+left/right requests a **bank angle**, not a yaw rate. Full input requests
 25 degrees; the shaped analog value scales that target. A gyro-aware torque
 changes bank about the travel direction, using the perpendicular torque axis
 (`up` projected into the ring plane). At very low spin, ordinary roll torque
@@ -189,7 +201,7 @@ return the body upright. Bank-rate feedback damps rocking without damping axle
 spin. At high speed, changing sides takes longer because the bank actuator has
 a finite torque cap and must redirect greater angular momentum.
 
-The requested **manual lower pivot** is a separate, explicit contact assist.
+Only in that optional bank-angle mode, the **manual lower pivot** is a separate, explicit contact assist.
 While banking on support it applies bounded impulses **at the support point**,
 5 cm above the averaged ground contacts by default. It reduces lateral/vertical
 velocity at that point using the full angular velocity and contact effective
@@ -217,12 +229,7 @@ While running in the editor, select **Remote > Track > Torus > Tuning**
 (or **ControlsLab > Torus > Tuning** in the flat lab).
 The `TorusTuning` resource exposes acceleration/braking/bank torque, hop impulse,
 stick deadzone/curve, support-contact threshold, hop rearm time, and rumble.
-Defaults are 18 / 24 / 30 N·m (bank torque is a cap), a 10.5 N·s hop, deadzone
-0.15, and exponent 1.5. Bank target limit is 25 degrees, bank-rate limit is
-40 degrees/s, response is 3/s, and bank-rate feedback is 20 N·m per rad/s.
-The lower pivot defaults to 5 cm above the
-support contacts, strength 1, response 40/s, and a correction acceleration cap
-of 20 m/s². These values are live-editable; general Phase 3 assists remain deferred.
+Defaults are 18 / 24 / 24 N·m, a 10.5 N·s hop, deadzone 0.15, and exponent 1.5.
 Edit geometry and base damping on the Torus node itself.
 `ChaseCamera > Side Offset` can restore an angled view (4.5 m in the original
 physics lab); zero in the playable scene avoids perspective-induced bank asymmetry.
@@ -303,9 +310,9 @@ on the next launch. File writes are deferred outside physics integration;
 `RaceManager > Persistence Enabled` can disable saving. The record is local to
 this circuit and is not separated by tuning preset.
 
-Press **D** to show the live bank-pivot strength alongside the physics readout.
-The panel explicitly marks the five general Phase 3 assists as not implemented;
-it does not invent strength values for unavailable features. Race state and
+Press **D** to show the steering mode alongside the physics readout.
+Direct lean reports the bank-pivot assist as off; the optional bank controller
+shows its live pivot strength. Race state and
 checkpoint markers remain separate from the original standalone labs.
 
 ## Original physics experiment
@@ -360,15 +367,12 @@ gyroscopic integration from contact-driven turning.
 
 The full `mise run validate` suite also exercises real keyboard/gamepad events,
 analog torque response, simultaneous inputs, braking near zero and in either
-spin direction, ring-relative lean, grounded hopping, reset, and debug on/off
+spin direction, precession-driven lean about the travel axis, grounded hopping, reset, and debug on/off
 physics equivalence. A separate rolling-steering regression uses the playable
-scene with gravity, friction, spin and gyro enabled: it checks sustained bank,
-left/right symmetry from identical starts, and turns under keyboard and analog
-input, with and without acceleration. The camera and grounded pivot have
-separate regressions. `tests/steering_lifecycle.gd` additionally covers a six-second
-held bank, a four-second reversal, and three seconds after release, both coasting
-and accelerating. The pivot regression checks its impulse bound, angular reaction,
-non-increasing kinetic energy on a stationary support, and hop/airborne exclusions.
+scene with gravity, friction, spin and gyro enabled: it checks camera-relative
+left/right turns after a 0.3 s lean tap under keyboard and analog input, with and
+without acceleration. Separate bank-controller, pivot and lifecycle regressions
+keep covering the optional previous mode.
 Free-flight conservation runs for six simulated seconds.
 Controller input is tested with synthetic events; physical rumble needs a
 controller check on your machine.

@@ -175,6 +175,9 @@ func _on_physics_sampled(snapshot: Dictionary) -> void:
 
 
 func _update_assist_readout() -> void:
+	if target != null and target.tuning != null and target.tuning.direct_lean:
+		_assist_readout.text = "Direct lean · tap to bank\nBank-pivot assist: off"
+		return
 	var pivot := target.tuning.lean_pivot_strength if target != null and target.tuning != null else 0.0
 	_assist_readout.text = "Bank-pivot strength %.2f\nPhase 3 assists: not implemented" % pivot
 

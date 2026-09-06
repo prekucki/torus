@@ -3,9 +3,12 @@ extends Resource
 ## Live input tuning. Arcade assists will be added in Phase 3.
 
 @export_group("Player torques (N m)")
+## Use the PR's tap-to-lean torque; disable for the previous bank-angle controller.
+@export var direct_lean: bool = true
 @export_range(0.0, 100.0, 0.1) var acceleration_torque: float = 18.0
 @export_range(0.0, 100.0, 0.1) var braking_torque: float = 24.0
-@export_range(0.0, 100.0, 0.1) var lean_torque: float = 30.0
+## Acts about the ring's in-plane up axis; lean rate is roughly torque / (I_axle * spin).
+@export_range(0.0, 100.0, 0.1) var lean_torque: float = 24.0
 
 @export_group("Motorcycle bank control")
 @export_range(5.0, 45.0, 0.5) var lean_angle_limit: float = 25.0

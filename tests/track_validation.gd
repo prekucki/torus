@@ -206,8 +206,8 @@ func _validate_mesh(road: StaticBody3D, body: TorusBody) -> void:
 		if child is CollisionShape3D:
 			capsules += int(child.shape is CapsuleShape3D)
 			dynamic_concave = dynamic_concave or child.shape is ConcavePolygonShape3D
-	_check(capsules == body.capsule_count and capsules == 100 and not dynamic_concave,
-		"The moving torus retains 100 capsule colliders")
+	_check(capsules == body.capsule_count and capsules == 64 and not dynamic_concave,
+		"The moving torus uses the 64-capsule low-loss rim")
 	_completed.append("mesh")
 
 

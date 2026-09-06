@@ -93,6 +93,8 @@ func _run() -> void:
 	body.controls_enabled = true
 	body.automatic_nudge = false
 	body.tuning.rumble_enabled = false
+	body.tuning.direct_lean = false
+	body.tuning.lean_torque = 30.0
 	body.tuning.lean_pivot_strength = 1.0
 	world.add_child(body)
 	await _ticks(body, 480)

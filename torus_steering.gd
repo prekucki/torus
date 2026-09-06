@@ -11,6 +11,9 @@ static func bank_torque(state: PhysicsDirectBodyState3D, axle: Vector3,
 	var bank_axis := Vector3.UP.slide(axle).normalized()
 	if forward.is_zero_approx() or bank_axis.is_zero_approx():
 		return Vector3.ZERO
+	if tuning.direct_lean:
+		# Precess the spinning axle into a lean; native gravity and contact turn it.
+		return bank_axis * steering * tuning.lean_torque
 	var bank := asin(clampf(axle.y, -1.0, 1.0))
 	var target := deg_to_rad(tuning.lean_angle_limit) * steering
 	var rate_limit := deg_to_rad(tuning.lean_rate_limit)
